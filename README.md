@@ -166,6 +166,20 @@ determine `returnsMutableRef`. Results are cached by `(package, module,
 function)` for the process lifetime, so a PTB with 20 calls into the same
 package performs one signature lookup.
 
+## Caching
+
+Chase caches normalized traces on disk at `~/.cache/chase/<digest>.json`.
+Repeat analyses of the same digest are near-instant and avoid hitting the
+public fullnode.
+
+    npm run cache -- --dir      # print cache location
+    npm run cache -- --clear    # wipe all cached traces
+
+Override the cache directory with `CHASE_CACHE_DIR`. Bypass the cache for a
+single run with `--no-cache`:
+
+    npm run analyze -- <digest> --no-cache
+
 ## Known limitations
 
 - **Retention window.** Public fullnodes prune historical transactions.
