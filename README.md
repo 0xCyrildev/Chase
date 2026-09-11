@@ -181,6 +181,9 @@ package performs one signature lookup.
   the retry budget.
 - **No mempool streaming.** One digest per invocation. Batch and streaming
   modes are planned.
+  - **Archival fallback is built in.** Chase queries the mainnet fullnode first and
+  falls back to `archive.mainnet.sui.io:443` on `NOT_FOUND`. The public archival
+  endpoint has strict rate limits; for bulk queries use a paid provider.
 
 ## Roadmap
 
@@ -217,6 +220,7 @@ Build (produces `dist/`):
 npm run build
 npm start -- analyze <DIGEST>
 ```
+
 
 ## Acknowledgments
 

@@ -25,20 +25,43 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 500): P
 const signatureCache = new Map<string, boolean>();
 
 export class TraceFetcher {
-  private client: SuiGrpcClient;
+  private fullnode: SuiGrpcClient;
+  private archival: SuiGrpcClient | null;
   private network: "mainnet" | "testnet" | "devnet";
 
   constructor(network: "mainnet" | "testnet" | "devnet" = "mainnet") {
     this.network = network;
-    this.client = new SuiGrpcClient({
+    this.fullnode = new SuiGrpcClient({
       network,
       baseUrl: `https://fullnode.${network}.sui.io:443`,
     });
+
+    // Archival is mainnet-only per Sui Foundation docs
+    this.archival =
+      network === "mainnet"
+        ? new SuiGrpcClient({
+            network,
+            baseUrl: `https://archive.mainnet.sui.io:443`,
+          })
+        : null;
   }
 
   async fetch(digest: string): Promise<SuiTransactionTrace> {
+    try {
+      return await this.fetchFrom(this.fullnode, digest);
+    } catch (err: any) {
+      // Full nodes don't implicitly fall back to archival — do it explicitly
+      if (err?.reason === "notFound" && this.archival) {
+        console.error(`[chase] not found on fullnode, trying archival...`);
+        return await this.fetchFrom(this.archival, digest);
+      }
+      throw err;
+    }
+  }
+
+  private async fetchFrom(client: SuiGrpcClient, digest: string): Promise<SuiTransactionTrace> {
     const result = await withRetry(() =>
-      this.client.core.getTransaction({
+      client.core.getTransaction({
         digest,
         include: {
           transaction: true,
@@ -139,7 +162,7 @@ export class TraceFetcher {
 
     try {
       const sig = await withRetry(() =>
-        (this.client.core as any).getMoveFunction({
+        (this.fullnode.core as any).getMoveFunction({
           packageId,
           moduleName: module,
           name: fn,
