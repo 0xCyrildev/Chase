@@ -1,0 +1,5 @@
+{
+  "testnet": [],
+  "mainnet": [],
+  "notes": "Add transaction digests here as you collect them. Format: { digest, label, expectedViolations: [] }"
+}

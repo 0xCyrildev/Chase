@@ -1,0 +1,28 @@
+{
+  "name": "chase",
+  "version": "0.1.0",
+  "description": "Chase — dynamic analysis tool for Sui Move transactions",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "chase": "./dist/index.js"
+  },
+  "scripts": {
+    "analyze": "tsx src/index.ts analyze",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@mysten/sui": "^2.30.0",
+    "axios": "^1.20.0",
+    "commander": "^15.0.0",
+    "dotenv": "^17.4.2",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.23.13",
+    "typescript": "^6.0.3"
+  }
+}

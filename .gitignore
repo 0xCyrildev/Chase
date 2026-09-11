@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Reports
+reports/*.json
+!reports/.gitkeep
+
+# Scratch / debug
+probe.mjs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
