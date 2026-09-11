@@ -9,8 +9,8 @@ dotenv.config();
 const program = new Command();
 
 program
-  .name("chase")
-  .description("Chase — dynamic analysis tool for Sui Move transactions")
+  .name("Chase")
+  .description("Dynamic analysis tool for Sui Move transactions")
   .version("0.1.0");
 
 program
