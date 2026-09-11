@@ -36,12 +36,11 @@ export class TraceFetcher {
       baseUrl: `https://fullnode.${network}.sui.io:443`,
     });
 
-    // Archival is mainnet-only per Sui Foundation docs
     this.archival =
       network === "mainnet"
         ? new SuiGrpcClient({
             network,
-            baseUrl: `https://archive.mainnet.sui.io:443`,
+            baseUrl: "https://archive.mainnet.sui.io:443",
           })
         : null;
   }
@@ -50,7 +49,6 @@ export class TraceFetcher {
     try {
       return await this.fetchFrom(this.fullnode, digest);
     } catch (err: any) {
-      // Full nodes don't implicitly fall back to archival — do it explicitly
       if (err?.reason === "notFound" && this.archival) {
         console.error(`[chase] not found on fullnode, trying archival...`);
         return await this.fetchFrom(this.archival, digest);
@@ -79,6 +77,30 @@ export class TraceFetcher {
 
     return await this.normalize(digest, result.Transaction);
   }
+
+  async getCheckpointHeight(): Promise<{ current: bigint; lowest: bigint }> {
+    const wrapper = await (this.fullnode.ledgerService as any).getServiceInfo({});
+    const info = wrapper?.response ?? wrapper;
+
+    const current = BigInt(info?.checkpointHeight ?? 0);
+    const lowest = BigInt(info?.lowestAvailableCheckpoint ?? 0);
+
+    return { current, lowest };
+  }
+
+ async getCheckpointTransactions(seq: bigint): Promise<string[]> {
+  const wrapper = await (this.fullnode.ledgerService as any).getCheckpoint({
+    checkpointId: { oneofKind: "sequenceNumber", sequenceNumber: seq },
+    readMask: { paths: ["transactions"] },
+  });
+
+  const cp = wrapper?.response?.checkpoint ?? wrapper?.response;
+  const txs = cp?.transactions ?? [];
+
+  return txs
+    .map((t: any) => (typeof t === "string" ? t : t.digest))
+    .filter((d: any): d is string => typeof d === "string" && d.length > 0);
+}
 
   private async normalize(digest: string, tx: any): Promise<SuiTransactionTrace> {
     const sender = tx.transaction?.sender ?? "unknown";
@@ -169,7 +191,7 @@ export class TraceFetcher {
         })
       );
 
-      const f = sig?.function;
+      const f = sig?.function ?? sig?.response?.function;
       if (!f) {
         signatureCache.set(key, false);
         return false;
@@ -191,10 +213,6 @@ export class TraceFetcher {
   }
 }
 
-/**
- * gRPC owner objects use a $kind oneof. Extract the address if the owner
- * is an AddressOwner; return undefined for Shared, Immutable, or unknown.
- */
 function extractAddress(owner: any): string | undefined {
   if (!owner) return undefined;
   if (owner.$kind === "AddressOwner" && typeof owner.AddressOwner === "string") {

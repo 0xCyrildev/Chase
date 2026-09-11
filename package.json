@@ -24,5 +24,13 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3"
-  }
+  },
+  "scripts": {
+  "analyze": "tsx src/index.ts analyze",
+  "batch": "tsx src/index.ts batch",
+  "watch": "tsx src/index.ts watch",
+  "build": "tsc",
+  "start": "node dist/index.js"
+}
+  
 }
