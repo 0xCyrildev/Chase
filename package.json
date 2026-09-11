@@ -29,6 +29,7 @@
   "analyze": "tsx src/index.ts analyze",
   "batch": "tsx src/index.ts batch",
   "watch": "tsx src/index.ts watch",
+  "cache": "tsx src/index.ts cache",
   "build": "tsc",
   "start": "node dist/index.js"
 }

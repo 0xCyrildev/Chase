@@ -8,6 +8,7 @@ interface AnalyzeOptions {
   json?: boolean;
   out?: string;
   debug?: boolean;
+  cache?: boolean;
 }
 
 function shortType(t: string): string {
@@ -18,7 +19,7 @@ function shortType(t: string): string {
 }
 
 export async function analyzeCommand(digest: string, opts: AnalyzeOptions) {
-  const report = await runAnalysis(digest, opts.debug ?? false);
+  const report = await runAnalysis(digest, opts.debug ?? false, opts.cache !== false);
 
   if (opts.json) {
     console.log(toJson(report));
@@ -34,9 +35,13 @@ export async function analyzeCommand(digest: string, opts: AnalyzeOptions) {
   process.exit(report.violations.length > 0 ? 1 : 0);
 }
 
-export async function runAnalysis(digest: string, debug = false): Promise<AnalysisReport> {
+export async function runAnalysis(
+  digest: string,
+  debug = false,
+  useCache = true
+): Promise<AnalysisReport> {
   const network = (process.env.SUI_NETWORK as "mainnet" | "testnet" | "devnet") ?? "mainnet";
-  const fetcher = new TraceFetcher(network);
+  const fetcher = new TraceFetcher(network, useCache);
 
   if (debug) console.error(`[chase] fetching trace for ${digest}...`);
   const trace = await fetcher.fetch(digest);

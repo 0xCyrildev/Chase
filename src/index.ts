@@ -5,6 +5,7 @@ import { analyzeCommand } from "./commands/analyze.js";
 import { batchCommand } from "./commands/batch.js";
 import { watchCommand } from "./commands/watch.js";
 import { printBanner } from "./lib/banner.js";
+import { clearCache, cacheDir } from "./lib/cache.js";
 
 dotenv.config();
 
@@ -21,6 +22,7 @@ program
   .option("--json", "Output as JSON")
   .option("-o, --out <file>", "Write report to file")
   .option("--debug", "Print resolved commands, balance changes, and events to stderr")
+  .option("--no-cache", "Bypass the on-disk trace cache")
   .action(async (digest, opts) => {
     if (!opts.json) printBanner();
     try {
@@ -59,6 +61,25 @@ program
       console.error("[chase] error:", err);
       process.exit(2);
     }
+  });
+
+program
+  .command("cache")
+  .description("Manage the local trace cache")
+  .option("--clear", "Delete all cached traces")
+  .option("--dir", "Print the cache directory")
+  .action((opts) => {
+    if (opts.dir) {
+      console.log(cacheDir());
+      return;
+    }
+    if (opts.clear) {
+      const n = clearCache();
+      console.error(`[chase] removed ${n} cached trace(s)`);
+      return;
+    }
+    console.error(`[chase] cache dir: ${cacheDir()}`);
+    console.error(`[chase] use --clear to wipe, --dir to print path`);
   });
 
 program.parseAsync(process.argv);

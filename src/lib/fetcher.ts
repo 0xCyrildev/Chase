@@ -6,6 +6,7 @@ import {
   PTBCommand,
   SuiEvent,
 } from "./types.js";
+import { loadTrace, saveTrace } from "./cache.js";
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 500): Promise<T> {
   let lastErr: unknown;
@@ -28,9 +29,11 @@ export class TraceFetcher {
   private fullnode: SuiGrpcClient;
   private archival: SuiGrpcClient | null;
   private network: "mainnet" | "testnet" | "devnet";
+  private useCache: boolean;
 
-  constructor(network: "mainnet" | "testnet" | "devnet" = "mainnet") {
+  constructor(network: "mainnet" | "testnet" | "devnet" = "mainnet", useCache = true) {
     this.network = network;
+    this.useCache = useCache;
     this.fullnode = new SuiGrpcClient({
       network,
       baseUrl: `https://fullnode.${network}.sui.io:443`,
@@ -46,6 +49,19 @@ export class TraceFetcher {
   }
 
   async fetch(digest: string): Promise<SuiTransactionTrace> {
+    if (this.useCache) {
+      const cached = loadTrace(digest);
+      if (cached) return cached;
+    }
+
+    const trace = await this.fetchUncached(digest);
+
+    if (this.useCache) saveTrace(trace);
+
+    return trace;
+  }
+
+  private async fetchUncached(digest: string): Promise<SuiTransactionTrace> {
     try {
       return await this.fetchFrom(this.fullnode, digest);
     } catch (err: any) {
@@ -88,19 +104,19 @@ export class TraceFetcher {
     return { current, lowest };
   }
 
- async getCheckpointTransactions(seq: bigint): Promise<string[]> {
-  const wrapper = await (this.fullnode.ledgerService as any).getCheckpoint({
-    checkpointId: { oneofKind: "sequenceNumber", sequenceNumber: seq },
-    readMask: { paths: ["transactions"] },
-  });
+  async getCheckpointTransactions(seq: bigint): Promise<string[]> {
+    const wrapper = await (this.fullnode.ledgerService as any).getCheckpoint({
+      checkpointId: { oneofKind: "sequenceNumber", sequenceNumber: seq },
+      readMask: ["transactions"],
+    });
 
-  const cp = wrapper?.response?.checkpoint ?? wrapper?.response;
-  const txs = cp?.transactions ?? [];
+    const cp = wrapper?.response?.checkpoint ?? wrapper?.response;
+    const txs = cp?.transactions ?? [];
 
-  return txs
-    .map((t: any) => (typeof t === "string" ? t : t.digest))
-    .filter((d: any): d is string => typeof d === "string" && d.length > 0);
-}
+    return txs
+      .map((t: any) => (typeof t === "string" ? t : t.digest))
+      .filter((d: any): d is string => typeof d === "string" && d.length > 0);
+  }
 
   private async normalize(digest: string, tx: any): Promise<SuiTransactionTrace> {
     const sender = tx.transaction?.sender ?? "unknown";
