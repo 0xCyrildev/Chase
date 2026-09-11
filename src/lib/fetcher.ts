@@ -59,6 +59,7 @@ export class TraceFetcher {
 
   private async normalize(digest: string, tx: any): Promise<SuiTransactionTrace> {
     const sender = tx.transaction?.sender ?? "unknown";
+    const objectTypes: Record<string, string> = tx.objectTypes ?? {};
 
     const balanceChanges: BalanceChange[] = (tx.balanceChanges ?? []).map((b: any) => ({
       owner: b.address ?? "unknown",
@@ -66,13 +67,23 @@ export class TraceFetcher {
       amount: BigInt(b.amount ?? 0),
     }));
 
-    const objectChanges: ObjectChange[] = (tx.effects?.changedObjects ?? []).map((o: any) => ({
-      objectId: o.objectId ?? "unknown",
-      objectType: o.objectType ?? "unknown",
-      changeType: o.changeType ?? "mutated",
-      recipient: o.recipient,
-      sender: o.sender,
-    }));
+    const objectChanges: ObjectChange[] = (tx.effects?.changedObjects ?? []).map((o: any) => {
+      const inputExists = o.inputState === "Exists";
+      const outputExists = o.outputState === "ObjectWrite";
+
+      let changeType: string;
+      if (!inputExists && outputExists) changeType = "created";
+      else if (inputExists && !outputExists) changeType = "deleted";
+      else changeType = "mutated";
+
+      return {
+        objectId: o.objectId ?? "unknown",
+        objectType: objectTypes[o.objectId] ?? "unknown",
+        changeType,
+        sender: extractAddress(o.inputOwner),
+        recipient: extractAddress(o.outputOwner),
+      };
+    });
 
     const ptbCommands = await this.extractCommands(tx);
 
@@ -141,7 +152,6 @@ export class TraceFetcher {
         return false;
       }
 
-      // Only externally callable functions matter for this bug class
       if (f.visibility !== "public") {
         signatureCache.set(key, false);
         return false;
@@ -156,4 +166,17 @@ export class TraceFetcher {
       return false;
     }
   }
+}
+
+/**
+ * gRPC owner objects use a $kind oneof. Extract the address if the owner
+ * is an AddressOwner; return undefined for Shared, Immutable, or unknown.
+ */
+function extractAddress(owner: any): string | undefined {
+  if (!owner) return undefined;
+  if (owner.$kind === "AddressOwner" && typeof owner.AddressOwner === "string") {
+    return owner.AddressOwner;
+  }
+  if (typeof owner === "string") return owner;
+  return undefined;
 }

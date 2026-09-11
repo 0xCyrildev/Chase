@@ -9,7 +9,12 @@ interface AnalyzeOptions {
   out?: string;
   debug?: boolean;
 }
-
+function shortType(t: string): string {
+  const idx = t.indexOf("::");
+  if (idx === -1) return t;
+  const rest = t.slice(idx + 2);
+  return rest.length > 60 ? rest.slice(0, 60) + "…" : rest;
+}
 export async function analyzeCommand(digest: string, opts: AnalyzeOptions) {
   const network = (process.env.SUI_NETWORK as "mainnet" | "testnet" | "devnet") ?? "mainnet";
   const fetcher = new TraceFetcher(network);
@@ -40,7 +45,7 @@ export async function analyzeCommand(digest: string, opts: AnalyzeOptions) {
 
     console.error(`[chase.debug] object changes (${trace.objectChanges.length}):`);
     for (const oc of trace.objectChanges) {
-      console.error(`  ${oc.changeType} ${oc.objectId.slice(0, 20)}… ${oc.objectType.slice(0, 50)}`);
+    console.error(`  ${oc.changeType} ${oc.objectId.slice(0, 20)}… ${shortType(oc.objectType)}`);
     }
   }
 
