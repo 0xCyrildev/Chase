@@ -10,13 +10,26 @@
       "digest": "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
       "label": "aggregator swap (mainnet, address outflow only)",
       "network": "mainnet",
-      "expectViolationTypes": ["ADDRESS_OUTFLOW"]
+      "expectViolationTypes": ["ADDRESS_OUTFLOW"],
+      "note": "coin_utils called 4x — under REPEATED_MODULE_CALLS threshold of 5"
     },
     {
       "digest": "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg",
-      "label": "synthetic public &mut leak (testnet, positive control)",
+      "label": "synthetic public &mut leak (testnet)",
       "network": "testnet",
       "expectViolationTypes": ["MUTABLE_REFERENCE_RETURNED"]
+    },
+    {
+      "digest": "7Y3T5H7oXRhG1vjhnAERiseYW6tY4XndAfHSrrbVwKT2",
+      "label": "synthetic oracle update + swap (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["ORACLE_MANIPULATION_SUSPECTED"]
+    },
+    {
+      "digest": "EpcqsX3RHDwpE2YAqHcfcKtDExjTBkz5FczQUk9PB4gp",
+      "label": "synthetic gift transfer to non-participant (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["UNEXPECTED_TRANSFER"]
     }
   ]
 }
