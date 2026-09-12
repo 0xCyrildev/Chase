@@ -12,6 +12,7 @@ export interface AnalysisReport {
   network: string;
   timestamp: string;
   sender: string;
+  success: boolean;
   violations: Violation[];
   stats: {
     balanceChanges: number;
@@ -30,6 +31,7 @@ export interface InvariantChecker {
 export interface SuiTransactionTrace {
   digest: string;
   sender: string;
+  success: boolean;
   balanceChanges: BalanceChange[];
   objectChanges: ObjectChange[];
   ptbCommands: PTBCommand[];
@@ -46,7 +48,7 @@ export interface BalanceChange {
 export interface ObjectChange {
   objectId: string;
   objectType: string;
-  changeType: "created" | "mutated" | "transferred" | "deleted" | "published";
+  changeType: string;
   recipient?: string;
   sender?: string;
 }

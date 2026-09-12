@@ -179,6 +179,17 @@ Override the cache directory with `CHASE_CACHE_DIR`. Bypass the cache for a
 single run with `--no-cache`:
 
     npm run analyze -- <digest> --no-cache
+    # Synthetic Leak Package
+
+A minimal Sui Move package that exhibits the "public function returns &mut"
+bug class. Used as a positive control for Chase's `mutable-access` invariant.
+
+## The pattern
+
+```move
+public fun leak_mut(vault: &mut Vault): &mut Inner {
+    abort 0
+}
 
 ## Known limitations
 

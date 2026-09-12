@@ -87,11 +87,16 @@ export class TraceFetcher {
       })
     );
 
-    if (result.$kind !== "Transaction" || !result.Transaction) {
+    // gRPC may return the tx under "Transaction" or a failure-specific variant.
+    // Failed txs are still worth analyzing — attempted exploits often revert.
+    const kind = result.$kind ?? "Transaction";
+    const tx = (result as any).Transaction ?? (result as any)[kind] ?? null;
+
+    if (!tx) {
       throw new Error(`Transaction ${digest} not found`);
     }
 
-    return await this.normalize(digest, result.Transaction);
+    return await this.normalize(digest, tx);
   }
 
   async getCheckpointHeight(): Promise<{ current: bigint; lowest: bigint }> {
@@ -121,6 +126,15 @@ export class TraceFetcher {
   private async normalize(digest: string, tx: any): Promise<SuiTransactionTrace> {
     const sender = tx.transaction?.sender ?? "unknown";
     const objectTypes: Record<string, string> = tx.objectTypes ?? {};
+
+    // Determine success: prefer status.success if present, else treat as
+    // successful unless explicitly marked otherwise.
+    let success = true;
+    if (tx.status && typeof tx.status.success === "boolean") {
+      success = tx.status.success;
+    } else if (tx.status?.$kind === "Failure" || tx.status?.$kind === "Failed") {
+      success = false;
+    }
 
     const balanceChanges: BalanceChange[] = (tx.balanceChanges ?? []).map((b: any) => ({
       owner: b.address ?? "unknown",
@@ -159,6 +173,7 @@ export class TraceFetcher {
     return {
       digest,
       sender,
+      success,
       balanceChanges,
       objectChanges,
       ptbCommands,

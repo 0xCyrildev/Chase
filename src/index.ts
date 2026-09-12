@@ -7,7 +7,7 @@ import { watchCommand } from "./commands/watch.js";
 import { printBanner } from "./lib/banner.js";
 import { clearCache, cacheDir } from "./lib/cache.js";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const program = new Command();
 

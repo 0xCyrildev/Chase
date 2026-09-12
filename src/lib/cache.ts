@@ -19,7 +19,6 @@ export function loadTrace(digest: string): SuiTransactionTrace | null {
 
   try {
     const raw = JSON.parse(fs.readFileSync(p, "utf8"));
-    // Rehydrate bigints
     raw.balanceChanges = (raw.balanceChanges ?? []).map((b: any) => ({
       ...b,
       amount: BigInt(b.amount),
@@ -27,6 +26,8 @@ export function loadTrace(digest: string): SuiTransactionTrace | null {
     raw.ptbCommands = (raw.ptbCommands ?? []).map((c: any) => ({ ...c }));
     raw.objectChanges = (raw.objectChanges ?? []).map((o: any) => ({ ...o }));
     raw.events = (raw.events ?? []).map((e: any) => ({ ...e }));
+    // default success to true for older cached traces
+    if (typeof raw.success !== "boolean") raw.success = true;
     return raw as SuiTransactionTrace;
   } catch {
     return null;
@@ -42,11 +43,11 @@ export function saveTrace(trace: SuiTransactionTrace): void {
         ...b,
         amount: b.amount.toString(),
       })),
-      raw: undefined, // protobuf object can't be serialized
+      raw: undefined,
     };
     fs.writeFileSync(cachePath(trace.digest), JSON.stringify(serializable));
   } catch {
-    // Cache write failure is non-fatal — silently skip
+    // cache write failure is non-fatal
   }
 }
 

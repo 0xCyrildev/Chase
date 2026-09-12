@@ -46,6 +46,12 @@ export async function runAnalysis(
   if (debug) console.error(`[chase] fetching trace for ${digest}...`);
   const trace = await fetcher.fetch(digest);
 
+  if (!trace.success) {
+    console.error(
+      `[chase] note: transaction ${digest} failed on-chain — analyzing attempted calls anyway`
+    );
+  }
+
   if (debug) {
     console.error("[chase.debug] resolved commands:");
     for (const cmd of trace.ptbCommands) {
@@ -91,6 +97,7 @@ export async function runAnalysis(
     network,
     timestamp: new Date().toISOString(),
     sender: trace.sender,
+    success: trace.success,
     violations,
     stats: {
       balanceChanges: trace.balanceChanges.length,

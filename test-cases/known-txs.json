@@ -1,5 +1,22 @@
 {
-  "testnet": [],
-  "mainnet": [],
-  "notes": "Add transaction digests here as you collect them. Format: { digest, label, expectedViolations: [] }"
+  "cases": [
+    {
+      "digest": "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7",
+      "label": "order cancel (mainnet, clean)",
+      "network": "mainnet",
+      "expectViolationTypes": []
+    },
+    {
+      "digest": "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
+      "label": "aggregator swap (mainnet, address outflow only)",
+      "network": "mainnet",
+      "expectViolationTypes": ["ADDRESS_OUTFLOW"]
+    },
+    {
+      "digest": "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg",
+      "label": "synthetic public &mut leak (testnet, positive control)",
+      "network": "testnet",
+      "expectViolationTypes": ["MUTABLE_REFERENCE_RETURNED"]
+    }
+  ]
 }
