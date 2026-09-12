@@ -77,7 +77,7 @@ Batch mode:
 
 ```bash
 npm run batch -- digests.txt
-npm run batch -- digests.txt -o reports/batch.ndjson
+npm run batch -- digests.txt -o reports/batch.ndjson -c 10
 ```
 
 Watch mode:
@@ -105,7 +105,7 @@ fi
 
 ## Invariants
 
-Chase ships with five invariant checks. Each is intentionally conservative:
+Chase ships with eight invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
 ### address-balance-delta
@@ -132,9 +132,9 @@ attacker-deployed modules to obtain mutable references to sensitive objects.
 
 Severity: high
 
-Verified: fires on testnet digest
-9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg against package
-0x10172126::leak::leak_mut. See test-cases/synthetic-leak/ to reproduce.
+Verified: fires on testnet digest 9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg
+against package 0x10172126::leak::leak_mut. See test-cases/synthetic-leak/
+to reproduce.
 
 Limitation: only flags functions whose return type is directly &mut T.
 The public(package) exposure bug can also manifest through indirect access
@@ -147,6 +147,10 @@ transaction (neither as sender nor as a balance-change owner).
 
 Severity: medium
 
+Verified: fires on testnet digest
+EpcqsX3RHDwpE2YAqHcfcKtDExjTBkz5FczQUk9PB4gp (synthetic gift transfer to
+a non-participant address).
+
 Limitation: requires the recipient to be an address owner. Shared-object
 mutations are ignored, which is correct since most modern DeFi keeps value
 in shared pools, but it means the invariant is quiet on typical traffic.
@@ -158,6 +162,10 @@ action (swap, liquidation, borrow, withdraw) in the same PTB. Heuristic for
 the price-manipulation attack pattern seen in several Sui incidents.
 
 Severity: high
+
+Verified: fires on testnet digest
+7Y3T5H7oXRhG1vjhnAERiseYW6tY4XndAfHSrrbVwKT2 (synthetic update_price
+followed by swap).
 
 Limitation: purely name-based matching against a small keyword list.
 Legitimate protocols that update their own oracle then act on it will trip
@@ -175,6 +183,44 @@ Genuine repeated-call patterns below 5 go unreported. Lower the threshold
 in src/invariants/repeated-module-calls.ts if you're hunting a specific
 package.
 
+### reentrancy-pattern
+
+Flags A -> B -> A call sequences: the same function is called, then a
+different function, then the first function again. Tracks at function level,
+not module level, so hop::first -> hop::second -> hop::first is caught even
+though both functions share a module.
+
+Severity: medium
+
+Verified: fires on testnet digest
+GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd.
+
+Limitation: aggregators that call shared helper functions across multiple
+hops (e.g. coin_utils::transfer_nonzero in Cetus routers) will trip this.
+It's a real composition pattern, but usually benign in DEX routing. Treat
+as a triage signal, not a verdict.
+
+### flash-loan-shaped
+
+Flags PTBs that call a function matching borrow/flash_loan keywords,
+followed by a DeFi action (swap, liquidate, arbitrage), followed by a
+function matching repay/return_flash keywords.
+
+Severity: medium
+
+Limitation: name-based. Has not been validated with a synthetic positive
+control. Treat as a triage signal.
+
+### capability-transfer
+
+Flags transfers of capability objects (TreasuryCap, AdminCap, UpgradeCap,
+OwnerCap, MintCap, BurnCap) to addresses other than the transaction sender.
+
+Severity: high
+
+Limitation: name-based on the object type string. Has not been validated
+with a synthetic positive control. Treat as a triage signal.
+
 ## Architecture
 
 ```
@@ -182,13 +228,15 @@ src/
 ├── index.ts                    # CLI entry, command parsing
 ├── commands/
 │   ├── analyze.ts              # orchestrates fetch -> check -> report
-│   ├── batch.ts                # NDJSON batch mode
+│   ├── batch.ts                # NDJSON batch mode with concurrency
 │   └── watch.ts                # checkpoint scanner
 ├── lib/
 │   ├── banner.ts               # ASCII banner
 │   ├── cache.ts                # on-disk trace cache
+│   ├── concurrency.ts          # bounded parallel map
 │   ├── fetcher.ts              # gRPC fetch + normalize + signature resolver
 │   ├── reporter.ts             # human and JSON output
+│   ├── sigcache.ts             # persisted signature cache
 │   └── types.ts                # shared interfaces
 └── invariants/
     ├── index.ts                # registry
@@ -196,48 +244,66 @@ src/
     ├── mutable-access.ts       # public &mut return detection
     ├── ownership-anomaly.ts    # unexpected transfers
     ├── oracle-pattern.ts       # oracle + DeFi heuristic
-    └── repeated-module-calls.ts
+    ├── repeated-module-calls.ts
+    ├── reentrancy-pattern.ts   # A -> B -> A composition
+    ├── flash-loan-shaped.ts    # borrow -> action -> repay
+    └── capability-transfer.ts  # capability object transfers
 ```
 
 The fetcher resolves each MoveCall's signature via getMoveFunction to
-determine returnsMutableRef. Results are cached by (package, module,
-function) for the process lifetime.
+determine returnsMutableRef. Results are cached in memory and on disk
+(keyed by package::module::function).
 
 ## Caching
 
-Chase caches normalized traces on disk at ~/.cache/chase/<digest>.json.
+Chase caches two things on disk:
+
+- Normalized traces at ~/.cache/chase/<digest>.json
+- Move function signatures at ~/.cache/chase/signatures.json
+
 Repeat analyses of the same digest are near-instant and avoid hitting the
-public fullnode.
+public fullnode. Signature resolution is skipped entirely for functions
+already cached.
 
-```
+```bash
 npm run cache -- --dir      # print cache location
-npm run cache -- --clear    # wipe all cached traces
+npm run cache -- --clear    # wipe traces and signatures
+npm run cache               # show signature count
 ```
 
-Override the cache directory with CHASE_CACHE_DIR. Bypass with --no-cache.
+Override the cache directory with CHASE_CACHE_DIR. Bypass trace cache with
+--no-cache.
+
 ## Testing
 
-Fixtures live in `test-cases/known-txs.json`. Run the suite:
+Fixtures live in test-cases/known-txs.json. Run the suite:
 
-    ./scripts/run-tests.sh
+```bash
+./scripts/run-tests.sh
+```
 
-Five cases:
+Six cases:
 
-- **mainnet** — clean order cancel, no violations
-- **mainnet** — aggregator swap, produces `ADDRESS_OUTFLOW`
-- **testnet** — synthetic `leak::leak_mut`, produces `MUTABLE_REFERENCE_RETURNED`
-- **testnet** — synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
-- **testnet** — synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
+- mainnet — clean order cancel, no violations
+- mainnet — aggregator swap, produces ADDRESS_OUTFLOW and REENTRANCY_PATTERN
+- testnet — synthetic leak::leak_mut, produces MUTABLE_REFERENCE_RETURNED
+- testnet — synthetic oracle::update_price + oracle::swap, produces ORACLE_MANIPULATION_SUSPECTED
+- testnet — synthetic gift::give to a non-participant, produces UNEXPECTED_TRANSFER
+- testnet — synthetic hop::first -> hop::second -> hop::first, produces REENTRANCY_PATTERN
 
-The three testnet cases come from a package in `test-cases/synthetic-leak/`.
-Testnet is wiped periodically, so those digests may eventually stop resolving.
-Re-publish the package and update `known-txs.json` when that happens — the
-module source is in the repo so you can reproduce the exact same behavior.
+The four testnet cases come from a package in test-cases/synthetic-leak/.
+Testnet is wiped periodically, so those digests may eventually stop
+resolving. Re-publish the package and update known-txs.json when that
+happens — the module source is in the repo so you can reproduce the exact
+same behavior.
 
-    cd test-cases/synthetic-leak
-    sui client switch --env testnet
-    sui move build
-    sui client publish --gas-budget 100000000
+```bash
+cd test-cases/synthetic-leak
+sui client switch --env testnet
+sui move build
+sui client publish --gas-budget 100000000
+```
+
 ## Known limitations
 
 - Retention window. Public fullnodes prune historical transactions. Anything
@@ -259,13 +325,13 @@ module source is in the repo so you can reproduce the exact same behavior.
   don't have programmable bodies and aren't returned by GetTransaction. The
   watcher catches this and skips silently.
 
-- getMoveFunction is one RPC call per unique signature. Cached in-process
-  and across runs via the trace cache, but a very large PTB touching many
-  unfamiliar packages can exhaust the retry budget against a public
-  fullnode.
+- getMoveFunction is one RPC call per unique signature. Cached on disk, but
+  a very large PTB touching many unfamiliar packages can exhaust the retry
+  budget against a public fullnode.
 
-- oracle-pattern is name-based. Legitimate protocols that update their own
-  oracle then act on it will trip this. Treat as a triage signal.
+- oracle-pattern, flash-loan-shaped, and capability-transfer are name-based.
+  Legitimate protocols that match the keyword patterns will trip these.
+  Treat as triage signals, not verdicts.
 
 - ownership-anomaly produces no signal on shared-object flows. The recipient
   must be an address owner for the check to fire.
@@ -275,14 +341,12 @@ module source is in the repo so you can reproduce the exact same behavior.
 
 ## Roadmap
 
-- [ ] A -> B -> A call pattern invariant (reentrancy-shaped composition)
-- [ ] Capability-object misuse detection (TreasuryCap, AdminCap transfers)
-- [ ] Flash-loan-shaped transaction heuristic
-- [ ] Parallel fetch with concurrency limit
-- [ ] Persist signature cache across runs
+- [ ] Positive test fixtures for flash-loan-shaped and capability-transfer
+- [ ] Reconstruct object-owned balances to reduce address-balance-delta noise
 - [ ] Archival endpoint token support (ARCHIVE_TOKEN env var)
 - [ ] MCP server wrapping chase_analyze and chase_query for agentic triage
-- [ ] Positive test fixtures for oracle-pattern and ownership-anomaly
+- [ ] Persist checkpoint cursor across watch runs
+- [ ] Additional invariants: dynamic field abuse, event-less state changes
 
 ## Development
 
