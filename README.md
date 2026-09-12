@@ -215,23 +215,29 @@ npm run cache -- --clear    # wipe all cached traces
 ```
 
 Override the cache directory with CHASE_CACHE_DIR. Bypass with --no-cache.
-
 ## Testing
 
-Fixtures live in test-cases/known-txs.json. Run the suite:
+Fixtures live in `test-cases/known-txs.json`. Run the suite:
 
-```
-./scripts/run-tests.sh
-```
+    ./scripts/run-tests.sh
 
-Three cases: a clean mainnet order cancel, a mainnet aggregator swap
-producing an ADDRESS_OUTFLOW, and the testnet positive control for
-MUTABLE_REFERENCE_RETURNED.
+Five cases:
 
-To reproduce the positive control, publish the package in
-test-cases/synthetic-leak/ and update the fixture with the new digest.
-Testnet wipes periodically, so the recorded digest may eventually be pruned.
+- **mainnet** — clean order cancel, no violations
+- **mainnet** — aggregator swap, produces `ADDRESS_OUTFLOW`
+- **testnet** — synthetic `leak::leak_mut`, produces `MUTABLE_REFERENCE_RETURNED`
+- **testnet** — synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
+- **testnet** — synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
 
+The three testnet cases come from a package in `test-cases/synthetic-leak/`.
+Testnet is wiped periodically, so those digests may eventually stop resolving.
+Re-publish the package and update `known-txs.json` when that happens — the
+module source is in the repo so you can reproduce the exact same behavior.
+
+    cd test-cases/synthetic-leak
+    sui client switch --env testnet
+    sui move build
+    sui client publish --gas-budget 100000000
 ## Known limitations
 
 - Retention window. Public fullnodes prune historical transactions. Anything
