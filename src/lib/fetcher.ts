@@ -7,6 +7,7 @@ import {
   SuiEvent,
 } from "./types.js";
 import { loadTrace, saveTrace } from "./cache.js";
+import { getSignature, setSignature } from "./sigcache.js";
 
 async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 500): Promise<T> {
   let lastErr: unknown;
@@ -22,8 +23,6 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 500): P
   }
   throw lastErr;
 }
-
-const signatureCache = new Map<string, boolean>();
 
 export class TraceFetcher {
   private fullnode: SuiGrpcClient;
@@ -87,8 +86,6 @@ export class TraceFetcher {
       })
     );
 
-    // gRPC may return the tx under "Transaction" or a failure-specific variant.
-    // Failed txs are still worth analyzing — attempted exploits often revert.
     const kind = result.$kind ?? "Transaction";
     const tx = (result as any).Transaction ?? (result as any)[kind] ?? null;
 
@@ -127,8 +124,6 @@ export class TraceFetcher {
     const sender = tx.transaction?.sender ?? "unknown";
     const objectTypes: Record<string, string> = tx.objectTypes ?? {};
 
-    // Determine success: prefer status.success if present, else treat as
-    // successful unless explicitly marked otherwise.
     let success = true;
     if (tx.status && typeof tx.status.success === "boolean") {
       success = tx.status.success;
@@ -210,7 +205,7 @@ export class TraceFetcher {
     fn: string
   ): Promise<boolean> {
     const key = `${packageId}::${module}::${fn}`;
-    const cached = signatureCache.get(key);
+    const cached = getSignature(key);
     if (cached !== undefined) return cached;
 
     try {
@@ -224,18 +219,18 @@ export class TraceFetcher {
 
       const f = sig?.function ?? sig?.response?.function;
       if (!f) {
-        signatureCache.set(key, false);
+        setSignature(key, false);
         return false;
       }
 
       if (f.visibility !== "public") {
-        signatureCache.set(key, false);
+        setSignature(key, false);
         return false;
       }
 
       const returns = f.returns ?? [];
       const hasMutable = returns.some((r: any) => r?.reference === "mutable");
-      signatureCache.set(key, hasMutable);
+      setSignature(key, hasMutable);
       return hasMutable;
     } catch (err) {
       console.error(`[chase] getMoveFunction failed for ${key}:`, err);

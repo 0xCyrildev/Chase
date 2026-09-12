@@ -8,10 +8,10 @@
     },
     {
       "digest": "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
-      "label": "aggregator swap (mainnet, address outflow only)",
+      "label": "aggregator swap (mainnet, address outflow + composition)",
       "network": "mainnet",
-      "expectViolationTypes": ["ADDRESS_OUTFLOW"],
-      "note": "coin_utils called 4x — under REPEATED_MODULE_CALLS threshold of 5"
+      "expectViolationTypes": ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
+      "note": "router calls coin_utils::transfer_nonzero multiple times across hops"
     },
     {
       "digest": "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg",
@@ -30,6 +30,12 @@
       "label": "synthetic gift transfer to non-participant (testnet)",
       "network": "testnet",
       "expectViolationTypes": ["UNEXPECTED_TRANSFER"]
+    },
+    {
+      "digest": "GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd",
+      "label": "synthetic A -> B -> A composition (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["REENTRANCY_PATTERN"]
     }
   ]
 }

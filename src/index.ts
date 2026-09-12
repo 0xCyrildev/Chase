@@ -6,6 +6,7 @@ import { batchCommand } from "./commands/batch.js";
 import { watchCommand } from "./commands/watch.js";
 import { printBanner } from "./lib/banner.js";
 import { clearCache, cacheDir } from "./lib/cache.js";
+import { clearSignatureCache, signatureCacheSize } from "./lib/sigcache.js";
 
 dotenv.config({ quiet: true });
 
@@ -37,6 +38,7 @@ program
   .command("batch <file>")
   .description("Analyze multiple digests from a file (one per line, # for comments)")
   .option("-o, --out <file>", "Write NDJSON results to file")
+  .option("-c, --concurrency <n>", "Parallel fetch limit (default 5, max 20)")
   .action(async (file, opts) => {
     printBanner();
     try {
@@ -66,7 +68,7 @@ program
 program
   .command("cache")
   .description("Manage the local trace cache")
-  .option("--clear", "Delete all cached traces")
+  .option("--clear", "Delete all cached traces and signatures")
   .option("--dir", "Print the cache directory")
   .action((opts) => {
     if (opts.dir) {
@@ -75,10 +77,12 @@ program
     }
     if (opts.clear) {
       const n = clearCache();
-      console.error(`[chase] removed ${n} cached trace(s)`);
+      const s = clearSignatureCache();
+      console.error(`[chase] removed ${n} cached trace(s), ${s} cached signature(s)`);
       return;
     }
     console.error(`[chase] cache dir: ${cacheDir()}`);
+    console.error(`[chase] signatures cached: ${signatureCacheSize()}`);
     console.error(`[chase] use --clear to wipe, --dir to print path`);
   });
 
