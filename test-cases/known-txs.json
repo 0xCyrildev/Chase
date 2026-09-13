@@ -49,6 +49,12 @@
       "network": "testnet",
       "expectViolationTypes": ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
       "note": "TreasuryCap transfer trips both ownership-anomaly and capability-transfer"
+    },
+    {
+      "digest": "CFcSiiRgdsXU7Rb4SVjqEyBbx4yiFJWrASYcHcM56hx9",
+      "label": "synthetic repeated module calls (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["REPEATED_MODULE_CALLS"]
     }
   ]
 }

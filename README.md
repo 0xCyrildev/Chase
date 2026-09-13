@@ -155,8 +155,8 @@ The server speaks MCP protocol version 2025-06-18 over stdio.
 Chase ships with eight invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
-Four of them have **positive controls**: synthetic Move packages published to
-testnet that trigger the detector on demand. Those are marked **Verified**.
+Seven of the eight have **positive controls**: synthetic Move packages published to
+testnet that trigger each detector on demand. The remaining two (`address-balance-delta`, `repeated-module-calls`) are heuristics that fire on patterns without a clean synthetic trigger.
 
 ### address-balance-delta
 
@@ -230,6 +230,9 @@ more times.
 **Limitation:** threshold tuned to 5 to avoid firing on every aggregator
 PTB. Genuine repeated-call patterns below 5 go unreported.
 
+**Verified:** fires on testnet digest
+`<DIGEST>`. Synthetic source in
+`test-cases/synthetic-leak/sources/repeat.move`.
 ### reentrancy-pattern
 
 Flags `A -> B -> A` call sequences: the same function is called, then a
@@ -256,8 +259,12 @@ function matching repay/return_flash keywords.
 
 **Severity:** medium
 
-**Limitation:** name-based. No synthetic positive control yet. Treat as a
-triage signal.
+**Verified:** fires on testnet digest
+`8s8NfTFMpNKUWW18RK3zZ76zSEGn7EKC4DcbT5B9UEMm`. Synthetic source in
+`test-cases/synthetic-leak/sources/flash.move`.
+
+**Limitation:** name-based. Legitimate protocols that match the borrow/
+action/repay keyword sequence will trip this. Treat as a triage signal.
 
 ### capability-transfer
 
@@ -267,10 +274,16 @@ transaction sender.
 
 **Severity:** high
 
-**Limitation:** name-based on the object type string. No synthetic positive
-control yet. Treat as a triage signal.
+**Verified:** fires on testnet digest
+`AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV`. Synthetic source in
+`test-cases/synthetic-leak/sources/cap.move`.
+
+**Limitation:** name-based on the object type string. A `TreasuryCap`
+transfer also trips `ownership-anomaly`, which is expected — a cap moving to
+a new owner is both an ownership change and a capability handoff.
 
 ## Architecture
+
 
 ```
 src/
@@ -332,7 +345,7 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ./scripts/run-tests.sh
 ```
 
-Six cases:
+Eight cases:
 
 - **mainnet** — clean order cancel, no violations
 - **mainnet** — aggregator swap, produces `ADDRESS_OUTFLOW` and `REENTRANCY_PATTERN`
@@ -340,7 +353,8 @@ Six cases:
 - **testnet** — synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
 - **testnet** — synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
 - **testnet** — synthetic `hop::first -> hop::second -> hop::first`, produces `REENTRANCY_PATTERN`
-
+- **testnet** — synthetic `flash::flash_borrow → flash::swap → flash::flash_repay`, produces `FLASH_LOAN_SHAPED`
+- **testnet** — synthetic `cap::give_cap` transferring `TreasuryCap` to a non-sender, produces `CAPABILITY_TRANSFER` and `UNEXPECTED_TRANSFER`
 The four testnet cases come from a package in `test-cases/synthetic-leak/`.
 Testnet is wiped periodically, so those digests may eventually stop
 resolving. Re-publish the package and update `known-txs.json` when that
@@ -395,7 +409,6 @@ sui client publish --gas-budget 100000000
 
 ## Roadmap
 
-- [ ] Positive test fixtures for `flash-loan-shaped` and `capability-transfer`
 - [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise
 - [ ] Archival endpoint token support (`ARCHIVE_TOKEN` env var)
 - [ ] MCP server: refactor `runAnalysis` to take network as a parameter instead of reading `SUI_NETWORK` from env
