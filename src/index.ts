@@ -39,6 +39,7 @@ program
   .description("Analyze multiple digests from a file (one per line, # for comments)")
   .option("-o, --out <file>", "Write NDJSON results to file")
   .option("-c, --concurrency <n>", "Parallel fetch limit (default 5, max 20)")
+  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet)", "mainnet")
   .action(async (file, opts) => {
     printBanner();
     try {
@@ -55,6 +56,7 @@ program
   .option("--from <seq>", "Starting checkpoint sequence number")
   .option("--filter <substring>", "Only report findings whose evidence matches this substring")
   .option("--limit <n>", "Stop after processing N checkpoints")
+  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet)", "mainnet")
   .action(async (opts) => {
     printBanner();
     try {

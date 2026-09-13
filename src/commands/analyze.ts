@@ -4,6 +4,8 @@ import { printReport, toJson } from "../lib/reporter.js";
 import { AnalysisReport, Violation } from "../lib/types.js";
 import fs from "node:fs";
 
+export type Network = "mainnet" | "testnet" | "devnet";
+
 interface AnalyzeOptions {
   json?: boolean;
   out?: string;
@@ -38,10 +40,13 @@ export async function analyzeCommand(digest: string, opts: AnalyzeOptions) {
 export async function runAnalysis(
   digest: string,
   debug = false,
-  useCache = true
+  useCache = true,
+  network?: Network
 ): Promise<AnalysisReport> {
-  const network = (process.env.SUI_NETWORK as "mainnet" | "testnet" | "devnet") ?? "mainnet";
-  const fetcher = new TraceFetcher(network, useCache);
+  const resolvedNetwork: Network =
+    network ?? ((process.env.SUI_NETWORK as Network) ?? "mainnet");
+
+  const fetcher = new TraceFetcher(resolvedNetwork, useCache);
 
   if (debug) console.error(`[chase] fetching trace for ${digest}...`);
   const trace = await fetcher.fetch(digest);
@@ -94,7 +99,7 @@ export async function runAnalysis(
 
   return {
     digest,
-    network,
+    network: resolvedNetwork,
     timestamp: new Date().toISOString(),
     sender: trace.sender,
     success: trace.success,

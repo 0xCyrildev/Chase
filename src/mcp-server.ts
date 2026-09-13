@@ -11,9 +11,6 @@ const server = new McpServer({
   version: "0.1.0",
 });
 
-/**
- * chase_analyze — fetch a Sui Move transaction trace and run invariant checks.
- */
 server.tool(
   "chase_analyze",
   "Analyze a Sui Move transaction by digest. Fetches the execution trace over gRPC and runs invariant checks (mutable-access, oracle-pattern, ownership-anomaly, reentrancy-pattern, etc). Returns violations with severity and evidence.",
@@ -26,11 +23,8 @@ server.tool(
     debug: z.boolean().default(false).describe("Include per-command and per-object debug output"),
   },
   async ({ digest, network, debug }) => {
-    // runAnalysis reads SUI_NETWORK from env; set it explicitly
-    const prev = process.env.SUI_NETWORK;
-    process.env.SUI_NETWORK = network;
     try {
-      const report = await runAnalysis(digest, debug, true);
+      const report = await runAnalysis(digest, debug, true, network);
       return {
         content: [
           {
@@ -60,16 +54,10 @@ server.tool(
         content: [{ type: "text", text: `Error analyzing ${digest}: ${err?.message ?? err}` }],
         isError: true,
       };
-    } finally {
-      if (prev === undefined) delete process.env.SUI_NETWORK;
-      else process.env.SUI_NETWORK = prev;
     }
   }
 );
 
-/**
- * chase_query — inspect the local cache state.
- */
 server.tool(
   "chase_query",
   "Query Chase's local cache. Returns how many Move function signatures are cached and the cache directory path.",
@@ -93,23 +81,23 @@ server.tool(
   }
 );
 
-/**
- * chase_watch — scan a bounded range of checkpoints for findings.
- * Bounded because MCP tool calls should return within a reasonable time.
- */
 server.tool(
   "chase_watch",
   "Scan a range of Sui checkpoints, running invariants on each transaction. Returns any findings. Bounded to a small range to keep the call responsive.",
   {
     from: z.number().describe("Starting checkpoint sequence number (inclusive)"),
     to: z.number().describe("Ending checkpoint sequence number (inclusive). Keep range small (≤ 5)."),
+    network: z
+      .enum(["mainnet", "testnet", "devnet"])
+      .default("mainnet")
+      .describe("Sui network to scan"),
     filter: z
       .string()
       .optional()
       .describe("Only report findings whose evidence contains this substring (e.g. a package ID)"),
   },
-  async ({ from, to, filter }) => {
-    const fetcher = new TraceFetcher("mainnet", true);
+  async ({ from, to, network, filter }) => {
+    const fetcher = new TraceFetcher(network, true);
     const findings: any[] = [];
 
     for (let seq = BigInt(from); seq <= BigInt(to); seq++) {
@@ -123,7 +111,7 @@ server.tool(
 
       for (const digest of digests) {
         try {
-          const report = await runAnalysis(digest, false, true);
+          const report = await runAnalysis(digest, false, true, network);
           if (filter) {
             const touches = report.violations.some((v) =>
               JSON.stringify(v.evidence ?? {}).includes(filter)
@@ -147,7 +135,7 @@ server.tool(
       content: [
         {
           type: "text",
-          text: JSON.stringify({ from, to, findings }, null, 2),
+          text: JSON.stringify({ from, to, network, findings }, null, 2),
         },
       ],
     };

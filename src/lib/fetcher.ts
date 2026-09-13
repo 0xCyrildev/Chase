@@ -209,7 +209,7 @@ export class TraceFetcher {
     if (cached !== undefined) return cached;
 
     try {
-      const sig = await withRetry(() =>
+      const sig: any = await withRetry(() =>
         (this.fullnode.core as any).getMoveFunction({
           packageId,
           moduleName: module,

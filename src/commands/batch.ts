@@ -1,10 +1,13 @@
 import fs from "node:fs";
-import { runAnalysis } from "./analyze.js";
+import { runAnalysis, Network } from "./analyze.js";
 import { toJson } from "../lib/reporter.js";
+import { pMap } from "../lib/concurrency.js";
 import { AnalysisReport } from "../lib/types.js";
 
 interface BatchOptions {
   out?: string;
+  concurrency?: string;
+  network?: Network;
 }
 
 export async function batchCommand(file: string, opts: BatchOptions) {
@@ -24,25 +27,35 @@ export async function batchCommand(file: string, opts: BatchOptions) {
     process.exit(2);
   }
 
-  console.error(`[chase] batch analyzing ${digests.length} digest(s)...`);
+  const concurrency = Math.max(1, Math.min(20, parseInt(opts.concurrency ?? "5", 10)));
+  const network = opts.network ?? "mainnet";
+  console.error(
+    `[chase] batch analyzing ${digests.length} digest(s) on ${network} with concurrency ${concurrency}...`
+  );
 
-  const results: (AnalysisReport | { digest: string; error: string })[] = [];
-  for (const digest of digests) {
-    try {
-      const report = await runAnalysis(digest, false);
-      const flag = report.violations.length > 0 ? `⚠ ${report.violations.length}` : "✓";
-      console.error(`[chase] ${flag} ${digest.slice(0, 16)}…`);
-      results.push(report);
-    } catch (err: any) {
-      const msg = err?.reason === "notFound"
-        ? "not found (pruned or wrong network)"
-        : err?.message ?? String(err);
-      console.error(`[chase] ✗ ${digest.slice(0, 16)}… ${msg}`);
-      results.push({ digest, error: msg });
-    }
-  }
+  const results = await pMap(
+    digests,
+    async (digest): Promise<AnalysisReport | { digest: string; error: string }> => {
+      try {
+        const report = await runAnalysis(digest, false, true, network);
+        const flag = report.violations.length > 0 ? `⚠ ${report.violations.length}` : "✓";
+        console.error(`[chase] ${flag} ${digest.slice(0, 16)}…`);
+        return report;
+      } catch (err: any) {
+        const msg =
+          err?.reason === "notFound"
+            ? "not found (pruned or wrong network)"
+            : err?.message ?? String(err);
+        console.error(`[chase] ✗ ${digest.slice(0, 16)}… ${msg}`);
+        return { digest, error: msg };
+      }
+    },
+    concurrency
+  );
 
-  const ndjson = results.map((r) => JSON.stringify(r, (_k, v) => (typeof v === "bigint" ? v.toString() : v))).join("\n");
+  const ndjson = results
+    .map((r) => JSON.stringify(r, (_k, v) => (typeof v === "bigint" ? v.toString() : v)))
+    .join("\n");
 
   if (opts.out) {
     fs.writeFileSync(opts.out, ndjson);

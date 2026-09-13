@@ -1,14 +1,16 @@
 import { TraceFetcher } from "../lib/fetcher.js";
-import { runAnalysis } from "./analyze.js";
+import { runAnalysis, Network } from "./analyze.js";
 
 interface WatchOptions {
   from?: string;
   filter?: string;
   limit?: string;
+  network?: Network;
 }
 
 export async function watchCommand(opts: WatchOptions) {
-  const fetcher = new TraceFetcher();
+  const network: Network = opts.network ?? "mainnet";
+  const fetcher = new TraceFetcher(network, true);
   const limit = opts.limit ? parseInt(opts.limit, 10) : Infinity;
 
   let cursor: bigint;
@@ -20,7 +22,7 @@ export async function watchCommand(opts: WatchOptions) {
     console.error(`[chase] tip=${current} lowest=${lowest} starting=${cursor}`);
   }
 
-  console.error(`[chase] watching from checkpoint ${cursor}`);
+  console.error(`[chase] watching ${network} from checkpoint ${cursor}`);
 
   let processed = 0;
   while (processed < limit) {
@@ -45,11 +47,10 @@ export async function watchCommand(opts: WatchOptions) {
         console.error(`[chase] … ${checked}/${digests.length} (${flagged} flagged)`);
       }
 
-      const report = await tryAnalyze(digest, opts.filter);
+      const report = await tryAnalyze(digest, opts.filter, network);
       if (report === null) {
-        // Not-yet-indexed tx — retry once after a short delay
         await new Promise((r) => setTimeout(r, 2000));
-        const retried = await tryAnalyze(digest, opts.filter, true);
+        const retried = await tryAnalyze(digest, opts.filter, network, true);
         if (retried && retried.violations.length > 0) {
           flagged++;
           console.log(
@@ -89,19 +90,14 @@ interface WatchViolation {
   count?: number;
 }
 
-/**
- * Attempts analysis. Returns:
- * - report on success (violations array may be empty)
- * - null if the tx was not found (caller should retry) or is a non-PTB system tx
- * On unexpected errors, logs and returns null.
- */
 async function tryAnalyze(
   digest: string,
   filter: string | undefined,
+  network: Network,
   silent = false
 ): Promise<{ violations: WatchViolation[] } | null> {
   try {
-    const report = await runAnalysis(digest, false);
+    const report = await runAnalysis(digest, false, true, network);
 
     if (filter) {
       const touches = report.violations.some((v) =>
