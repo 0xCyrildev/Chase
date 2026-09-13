@@ -13,6 +13,13 @@ function isCapability(objectType: string): boolean {
   return CAP_PATTERNS.some((p) => objectType.includes(p));
 }
 
+function shortCapName(objectType: string): string {
+  for (const p of CAP_PATTERNS) {
+    if (objectType.includes(p)) return p.replace("::", "");
+  }
+  return objectType.split("::").pop() ?? objectType;
+}
+
 export const capabilityTransfer: InvariantChecker = {
   name: "capability-transfer",
   description:
@@ -28,7 +35,7 @@ export const capabilityTransfer: InvariantChecker = {
       violations.push({
         type: "CAPABILITY_TRANSFER",
         severity: "high",
-        message: `${change.objectType.split("::").slice(-2).join("::")} transferred to ${change.recipient.slice(0, 12)}…`,
+        message: `${shortCapName(change.objectType)} transferred to ${change.recipient.slice(0, 12)}…`,
         evidence: {
           objectId: change.objectId,
           objectType: change.objectType,

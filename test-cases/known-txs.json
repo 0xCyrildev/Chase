@@ -36,6 +36,19 @@
       "label": "synthetic A -> B -> A composition (testnet)",
       "network": "testnet",
       "expectViolationTypes": ["REENTRANCY_PATTERN"]
+    },
+    {
+      "digest": "8s8NfTFMpNKUWW18RK3zZ76zSEGn7EKC4DcbT5B9UEMm",
+      "label": "synthetic borrow -> swap -> repay (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["FLASH_LOAN_SHAPED"]
+    },
+    {
+      "digest": "AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV",
+      "label": "synthetic TreasuryCap transfer (testnet)",
+      "network": "testnet",
+      "expectViolationTypes": ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
+      "note": "TreasuryCap transfer trips both ownership-anomaly and capability-transfer"
     }
   ]
 }
