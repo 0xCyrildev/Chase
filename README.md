@@ -402,10 +402,7 @@ sui client publish --gas-budget 100000000
 - **No testnet archival.** The archival fallback is mainnet-only. Testnet
   wipes periodically.
 
-- **`chase_analyze` in the MCP server mutates `SUI_NETWORK` in
-  `process.env`**, so concurrent calls with different networks would race.
-  Claude Code and other clients serialize calls, so this doesn't bite in
-  practice.
+  
 
 ## Roadmap
 
