@@ -1,17 +1,36 @@
 {
-  "severityWeights": { "low": 10, "medium": 30, "high": 60, "critical": 80 },
-  "corroboration": { "perExtraInvariant": 10, "cap": 25 },
-  "benignPenalty": { "exactMatch": -40, "heuristicMatch": -20 },
-  "noveltyPenalty": { "threshold": 5, "penalty": -15 },
+  "severityWeights": {
+    "low": 10,
+    "medium": 30,
+    "high": 60,
+    "critical": 80
+  },
+  "corroboration": {
+    "perExtraInvariant": 10,
+    "cap": 25
+  },
+  "benignPenalty": {
+    "exactMatch": -40,
+    "heuristicMatch": -20
+  },
+  "noveltyPenalty": {
+    "threshold": 20,
+    "penalty": -15
+  },
   "confidenceModifier": {
     "MUTABLE_REFERENCE_RETURNED": 20,
     "CAPABILITY_TRANSFER": 10,
     "UNEXPECTED_TRANSFER": 5,
     "REENTRANCY_PATTERN": -10,
     "ORACLE_MANIPULATION_SUSPECTED": -15,
-    "FLASH_LOAN_SHAPED": -15,
+    "FLASH_LOAN_SHAPED": -5,
     "ADDRESS_OUTFLOW": -20,
     "REPEATED_MODULE_CALLS": -20
   },
-  "tiers": { "P0": 80, "P1": 60, "P2": 40, "P3": 20 }
+  "tiers": {
+    "P0": 80,
+    "P1": 60,
+    "P2": 40,
+    "P3": 20
+  }
 }

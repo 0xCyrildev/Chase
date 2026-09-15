@@ -4,57 +4,105 @@
       "digest": "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7",
       "label": "order cancel (mainnet, clean)",
       "network": "mainnet",
-      "expectViolationTypes": []
+      "expectViolationTypes": [],
+      "expectTiers": []
     },
     {
       "digest": "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
       "label": "aggregator swap (mainnet, address outflow + composition)",
       "network": "mainnet",
-      "expectViolationTypes": ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
-      "note": "router calls coin_utils::transfer_nonzero multiple times across hops"
+      "expectViolationTypes": [
+        "ADDRESS_OUTFLOW",
+        "REENTRANCY_PATTERN"
+      ],
+      "note": "router calls coin_utils::transfer_nonzero multiple times across hops",
+      "expectTiers": [
+        "P3",
+        "NOISE",
+        "NOISE",
+        "NOISE",
+        "NOISE"
+      ]
     },
     {
       "digest": "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg",
       "label": "synthetic public &mut leak (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["MUTABLE_REFERENCE_RETURNED"]
+      "expectViolationTypes": [
+        "MUTABLE_REFERENCE_RETURNED"
+      ],
+      "expectTiers": [
+        "P0"
+      ]
     },
     {
       "digest": "7Y3T5H7oXRhG1vjhnAERiseYW6tY4XndAfHSrrbVwKT2",
       "label": "synthetic oracle update + swap (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["ORACLE_MANIPULATION_SUSPECTED"]
+      "expectViolationTypes": [
+        "ORACLE_MANIPULATION_SUSPECTED"
+      ],
+      "expectTiers": [
+        "P2"
+      ]
     },
     {
       "digest": "EpcqsX3RHDwpE2YAqHcfcKtDExjTBkz5FczQUk9PB4gp",
       "label": "synthetic gift transfer to non-participant (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["UNEXPECTED_TRANSFER"]
+      "expectViolationTypes": [
+        "UNEXPECTED_TRANSFER"
+      ],
+      "expectTiers": [
+        "P3"
+      ]
     },
     {
       "digest": "GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd",
       "label": "synthetic A -> B -> A composition (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["REENTRANCY_PATTERN"]
+      "expectViolationTypes": [
+        "REENTRANCY_PATTERN"
+      ],
+      "expectTiers": [
+        "P3"
+      ]
     },
     {
       "digest": "8s8NfTFMpNKUWW18RK3zZ76zSEGn7EKC4DcbT5B9UEMm",
       "label": "synthetic borrow -> swap -> repay (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["FLASH_LOAN_SHAPED"]
+      "expectViolationTypes": [
+        "FLASH_LOAN_SHAPED"
+      ],
+      "expectTiers": [
+        "P3"
+      ]
     },
     {
       "digest": "AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV",
       "label": "synthetic TreasuryCap transfer (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
-      "note": "TreasuryCap transfer trips both ownership-anomaly and capability-transfer"
+      "expectViolationTypes": [
+        "CAPABILITY_TRANSFER",
+        "UNEXPECTED_TRANSFER"
+      ],
+      "note": "TreasuryCap transfer trips both ownership-anomaly and capability-transfer",
+      "expectTiers": [
+        "P1",
+        "P3"
+      ]
     },
     {
       "digest": "CFcSiiRgdsXU7Rb4SVjqEyBbx4yiFJWrASYcHcM56hx9",
       "label": "synthetic repeated module calls (testnet)",
       "network": "testnet",
-      "expectViolationTypes": ["REPEATED_MODULE_CALLS"]
+      "expectViolationTypes": [
+        "REPEATED_MODULE_CALLS"
+      ],
+      "expectTiers": [
+        "NOISE"
+      ]
     }
   ]
 }
