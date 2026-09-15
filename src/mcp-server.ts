@@ -5,6 +5,7 @@ import { z } from "zod";
 import { runAnalysis } from "./commands/analyze.js";
 import { TraceFetcher } from "./lib/fetcher.js";
 import { signatureCacheSize } from "./lib/sigcache.js";
+import { triage } from "./triage/index.js";
 
 const server = new McpServer({
   name: "chase",
@@ -86,7 +87,7 @@ server.tool(
   "Scan a range of Sui checkpoints, running invariants on each transaction. Returns any findings. Bounded to a small range to keep the call responsive.",
   {
     from: z.number().describe("Starting checkpoint sequence number (inclusive)"),
-    to: z.number().describe("Ending checkpoint sequence number (inclusive). Keep range small (≤ 5)."),
+    to: z.number().describe("Ending checkpoint sequence number (inclusive). Keep range small (<= 5)."),
     network: z
       .enum(["mainnet", "testnet", "devnet"])
       .default("mainnet")
@@ -139,6 +140,65 @@ server.tool(
         },
       ],
     };
+  }
+);
+
+server.tool(
+  "chase_triage",
+  "Run the triage layer over one or more Sui Move transaction digests. Fetches traces via Chase, applies benign-pattern matching and confidence scoring, and returns prioritized findings with tier (P0-P3, NOISE) and recommended action (DISMISS, MANUAL_REVIEW, ESCALATE).",
+  {
+    digests: z
+      .array(z.string())
+      .describe("Array of transaction digests to triage"),
+    network: z
+      .enum(["mainnet", "testnet", "devnet"])
+      .default("mainnet")
+      .describe("Sui network to query"),
+    minTier: z
+      .enum(["P0", "P1", "P2", "P3", "NOISE"])
+      .optional()
+      .describe("Only return findings at this tier or above"),
+  },
+  async ({ digests, network, minTier }) => {
+    try {
+      const report = await triage(digests, {
+        network,
+        minTier: minTier as any,
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                digests: report.digests,
+                summary: report.summary,
+                findings: report.findings.map((f) => ({
+                  digest: f.digest,
+                  type: f.violation.type,
+                  severity: f.violation.severity,
+                  tier: f.tier,
+                  score: f.score,
+                  message: f.violation.message,
+                  rationale: f.rationale,
+                  benignMatch: f.benignMatch,
+                  action: f.nextAction,
+                  confidence: f.confidence,
+                })),
+                caveats: report.caveats,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: "text", text: `Error triaging: ${err?.message ?? err}` }],
+        isError: true,
+      };
+    }
   }
 );
 

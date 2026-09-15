@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { EnrichedViolation, TriagedFinding, Tier, TriageConfig } from "./types.js";
+import {
+  EnrichedViolation,
+  TriagedFinding,
+  Tier,
+  TriageConfig,
+  NextAction,
+} from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_FILE = path.join(__dirname, "triage.config.json");
@@ -12,6 +18,19 @@ export function loadConfig(): TriageConfig {
   if (configCache) return configCache;
   configCache = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
   return configCache!;
+}
+
+function defaultAction(tier: Tier): NextAction {
+  switch (tier) {
+    case "P0":
+      return "ESCALATE";
+    case "P1":
+    case "P2":
+    case "P3":
+      return "MANUAL_REVIEW";
+    default:
+      return "DISMISS";
+  }
 }
 
 export function scoreFinding(e: EnrichedViolation): TriagedFinding {
@@ -37,11 +56,12 @@ export function scoreFinding(e: EnrichedViolation): TriagedFinding {
 
   const raw = base + corroboration + benignPenalty + noveltyPenalty + confidenceModifier;
   const score = Math.max(0, Math.min(100, raw));
+  const tier = tierFor(score);
 
   return {
     ...e,
     score,
-    tier: tierFor(score),
+    tier,
     rationale: buildRationale(e, {
       base,
       corroboration,
@@ -50,6 +70,7 @@ export function scoreFinding(e: EnrichedViolation): TriagedFinding {
       confidenceModifier,
       score,
     }),
+    nextAction: defaultAction(tier),
   };
 }
 
