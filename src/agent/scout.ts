@@ -50,12 +50,12 @@ export async function scout(
     if (opts.dryRun) {
   console.error(`[scout] dry-run iteration ${iteration}, filter=${currentFilter}`);
   const decision = await llm.decide({
-    mandate,
-    iteration,
-    previousFindings: findings,  // <-- pass accumulated findings, not []
-    currentFilter,
-    remaining: budget.remaining(),
-  });
+  mandate,
+  iteration,
+  previousFindings: findings,      // <-- all passes so far
+  currentFilter,
+  remaining: budget.remaining(),
+});
   budget.spendLlm(500);
   decisions.push(decision);
 

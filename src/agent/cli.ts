@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../lib/undici-setup.js";
 import { Command } from "commander";
 import dotenv from "dotenv";
 import fs from "node:fs";
@@ -18,8 +19,7 @@ program
   .version("2.0.0");
 
 program
-.option("--real-llm", "Use the real LLM for decisions and summaries")   
-.option("--target <target>", "Package ID or name to monitor")
+  .option("--target <target>", "Package ID or name to monitor")
   .option("--window <seconds>", "Lookback window in seconds", "600")
   .option("--goal <goal>", "What the scout is looking for", "detect suspicious activity")
   .option("--budget-rpc <n>", "Max RPC calls", "200")
@@ -27,6 +27,7 @@ program
   .option("--budget-tokens <n>", "Max LLM tokens", "50000")
   .option("--budget-minutes <n>", "Max wall clock in minutes", "15")
   .option("--dry-run", "Log decisions without executing scans")
+  .option("--real-llm", "Use the real LLM for decisions and summaries")
   .option("--json", "Output report as JSON")
   .option("-o, --out <file>", "Write report to file")
   .option("-n, --network <net>", "Sui network", "mainnet")

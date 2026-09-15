@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import "../lib/undici-setup.js";
 import { printBanner } from "../lib/banner.js";
 import { Command } from "commander";
 import dotenv from "dotenv";
