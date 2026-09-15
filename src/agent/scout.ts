@@ -48,16 +48,21 @@ export async function scout(
     budget.assertNotExhausted();
 
     if (opts.dryRun) {
-      console.error(`[scout] dry-run iteration ${iteration}, filter=${currentFilter}`);
-      const decision: ScoutDecision = {
-        action: iteration >= 3 ? "stop" : "continue",
-        reason: `dry-run: would scan checkpoints for ${currentFilter} and decide next step`,
-      };
-      decisions.push(decision);
+  console.error(`[scout] dry-run iteration ${iteration}, filter=${currentFilter}`);
+  const decision = await llm.decide({
+    mandate,
+    iteration,
+    previousFindings: findings,  // <-- pass accumulated findings, not []
+    currentFilter,
+    remaining: budget.remaining(),
+  });
+  budget.spendLlm(500);
+  decisions.push(decision);
 
-      if (decision.action === "stop") break;
-      continue;
-    }
+  if (decision.action === "stop") break;
+  if (decision.newFilter) currentFilter = decision.newFilter;
+  continue;
+}
 
     const scanResults = await runScanPass(currentFilter, mandate, budget, network);
     findings.push(...scanResults);
@@ -86,7 +91,12 @@ export async function scout(
   }
 
   const summary = opts.dryRun
-    ? "dry-run: no scanning performed"
+    ? await llm.summarize({
+        mandate,
+        findings: [],
+        decisions,
+        usage: budget.usage(),
+      })
     : await llm.summarize({
         mandate,
         findings,
@@ -117,10 +127,7 @@ async function runScanPass(
   const { current } = await fetcher.getCheckpointHeight();
   budget.spendRpc();
 
-  const checkpointsToScan = Math.min(
-    5,
-    Math.ceil(mandate.windowSeconds / 3)
-  );
+  const checkpointsToScan = Math.min(5, Math.ceil(mandate.windowSeconds / 3));
 
   for (let i = 0; i < checkpointsToScan; i++) {
     budget.assertNotExhausted();

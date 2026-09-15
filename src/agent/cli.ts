@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import fs from "node:fs";
 import { mandateFromArgs } from "./mandate.js";
 import { scout } from "./scout.js";
+import { RealLLM } from "./llm.js";
 import { StubLLM } from "./stub-llm.js";
 import { BudgetExceeded } from "./budget.js";
 
@@ -17,7 +18,8 @@ program
   .version("2.0.0");
 
 program
-  .option("--target <target>", "Package ID or name to monitor")
+.option("--real-llm", "Use the real LLM for decisions and summaries")   
+.option("--target <target>", "Package ID or name to monitor")
   .option("--window <seconds>", "Lookback window in seconds", "600")
   .option("--goal <goal>", "What the scout is looking for", "detect suspicious activity")
   .option("--budget-rpc <n>", "Max RPC calls", "200")
@@ -31,7 +33,7 @@ program
   .action(async (opts) => {
     try {
       const mandate = mandateFromArgs(opts);
-      const llm = new StubLLM();
+      const llm = opts.realLlm ? new RealLLM() : new StubLLM();
 
       const report = await scout(mandate, llm, {
         dryRun: opts.dryRun,
