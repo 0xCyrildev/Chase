@@ -1,7 +1,8 @@
 # Chase
 
-Dynamic analysis tool for Sui Move transactions. Fetches execution traces
-via gRPC and runs invariant checks to detect common vulnerability patterns.
+Dynamic analysis tool for Sui Move transactions built by yours truly. It
+fetches execution traces via gRPC and runs invariant checks to detect common
+vulnerability patterns.
 
 ```
    ▄████▄   ██░ ██  ▄▄▄       ██████  ▓█████
@@ -113,12 +114,11 @@ console.log(report.violations);
 
 ### MCP server
 
-Chase exposes four tools over the Model Context Protocol:
+Chase exposes three tools over the Model Context Protocol:
 
-- `chase_analyze` - fetch a trace and run invariants on a digest
-- `chase_query` - report signature cache state and cache directory
-- `chase_watch` - bounded checkpoint range scan with optional filter
-- `chase_triage` - run the triage layer over one or more digests
+- `chase_analyze` — fetch a trace and run invariants on a digest
+- `chase_query` — report signature cache state and cache directory
+- `chase_watch` — bounded checkpoint range scan with optional filter
 
 Run it:
 
@@ -155,11 +155,8 @@ The server speaks MCP protocol version 2025-06-18 over stdio.
 Chase ships with eight invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
-Seven of the eight have **positive controls**: synthetic Move packages
-published to testnet that trigger each detector on demand. The remaining one
-(`address-balance-delta`) is a heuristic that fires on patterns without a
-clean synthetic trigger, because the false-positive class is inherent to how
-gRPC surfaces balance changes.
+Seven of the eight have **positive controls**: synthetic Move packages published to
+testnet that trigger each detector on demand. The remaining two (`address-balance-delta`, `repeated-module-calls`) are heuristics that fire on patterns without a clean synthetic trigger.
 
 ### address-balance-delta
 
@@ -230,13 +227,12 @@ more times.
 
 **Severity:** low
 
-**Verified:** fires on testnet digest
-`CFcSiiRgdsXU7Rb4SVjqEyBbx4yiFJWrASYcHcM56hx9`. Synthetic source in
-`test-cases/synthetic-leak/sources/repeat.move`.
-
 **Limitation:** threshold tuned to 5 to avoid firing on every aggregator
 PTB. Genuine repeated-call patterns below 5 go unreported.
 
+**Verified:** fires on testnet digest
+`<DIGEST>`. Synthetic source in
+`test-cases/synthetic-leak/sources/repeat.move`.
 ### reentrancy-pattern
 
 Flags `A -> B -> A` call sequences: the same function is called, then a
@@ -283,8 +279,93 @@ transaction sender.
 `test-cases/synthetic-leak/sources/cap.move`.
 
 **Limitation:** name-based on the object type string. A `TreasuryCap`
-transfer also trips `ownership-anomaly`, which is expected - a cap moving to
+transfer also trips `ownership-anomaly`, which is expected — a cap moving to
 a new owner is both an ownership change and a capability handoff.
+
+## Architecture
+
+
+```
+src/
+├── index.ts                    # CLI entry, command parsing
+├── mcp-server.ts               # MCP server (stdio transport)
+├── commands/
+│   ├── analyze.ts              # orchestrates fetch -> check -> report
+│   ├── batch.ts                # NDJSON batch mode with concurrency
+│   └── watch.ts                # checkpoint scanner
+├── lib/
+│   ├── banner.ts               # ASCII banner
+│   ├── cache.ts                # on-disk trace cache
+│   ├── concurrency.ts          # bounded parallel map
+│   ├── fetcher.ts              # gRPC fetch + normalize + signature resolver
+│   ├── reporter.ts             # human and JSON output
+│   ├── sigcache.ts             # persisted signature cache
+│   └── types.ts                # shared interfaces
+└── invariants/
+    ├── index.ts                # registry
+    ├── token-conservation.ts   # address-balance-delta
+    ├── mutable-access.ts       # public &mut return detection
+    ├── ownership-anomaly.ts    # unexpected transfers
+    ├── oracle-pattern.ts       # oracle + DeFi heuristic
+    ├── repeated-module-calls.ts
+    ├── reentrancy-pattern.ts   # A -> B -> A composition
+    ├── flash-loan-shaped.ts    # borrow -> action -> repay
+    └── capability-transfer.ts  # capability object transfers
+```
+
+The fetcher resolves each MoveCall's signature via `getMoveFunction` to
+determine `returnsMutableRef`. Results are cached in memory and on disk,
+keyed by `package::module::function`.
+
+## Caching
+
+Chase caches two things on disk:
+
+- Normalized traces at `~/.cache/chase/<digest>.json`
+- Move function signatures at `~/.cache/chase/signatures.json`
+
+Repeat analyses of the same digest are near-instant and avoid hitting the
+public fullnode. Signature resolution is skipped entirely for functions
+already cached.
+
+```bash
+npm run cache -- --dir      # print cache location
+npm run cache -- --clear    # wipe traces and signatures
+npm run cache                # show signature count
+```
+
+Override the cache directory with `CHASE_CACHE_DIR`. Bypass trace cache with
+`--no-cache`.
+
+## Testing
+
+Fixtures live in `test-cases/known-txs.json`. Run the suite:
+
+```bash
+./scripts/run-tests.sh
+```
+
+Eight cases:
+
+- **mainnet** — clean order cancel, no violations
+- **mainnet** — aggregator swap, produces `ADDRESS_OUTFLOW` and `REENTRANCY_PATTERN`
+- **testnet** — synthetic `leak::leak_mut`, produces `MUTABLE_REFERENCE_RETURNED`
+- **testnet** — synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
+- **testnet** — synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
+- **testnet** — synthetic `hop::first -> hop::second -> hop::first`, produces `REENTRANCY_PATTERN`
+- **testnet** — synthetic `flash::flash_borrow → flash::swap → flash::flash_repay`, produces `FLASH_LOAN_SHAPED`
+- **testnet** — synthetic `cap::give_cap` transferring `TreasuryCap` to a non-sender, produces `CAPABILITY_TRANSFER` and `UNEXPECTED_TRANSFER`
+The four testnet cases come from a package in `test-cases/synthetic-leak/`.
+Testnet is wiped periodically, so those digests may eventually stop
+resolving. Re-publish the package and update `known-txs.json` when that
+happens.
+
+```bash
+cd test-cases/synthetic-leak
+sui client switch --env testnet
+sui move build
+sui client publish --gas-budget 100000000
+```
 
 ## Triage
 
@@ -356,110 +437,18 @@ Set `DEEPSEEK_API_KEY` (and optionally `DEEPSEEK_ENDPOINT`, `DEEPSEEK_MODEL`)
 in `.env`. Any OpenAI-compatible endpoint works, including OpenRouter's free
 tier.
 
+### MCP tool
+
+The triage layer is exposed as `chase_triage` through the MCP server. Any MCP
+client can call it with an array of digests and receive tiered findings with
+recommended actions.
+
 ### Triage fixtures
 
 `test-cases/known-txs.json` carries an `expectTiers` array per case.
 `./scripts/run-triage-tests.sh` checks each fixture produces the expected
 tier set. Runs offline, no LLM calls.
 
-## Architecture
-
-```
-src/
-├── index.ts                    # CLI entry, command parsing
-├── mcp-server.ts               # MCP server (stdio transport)
-├── commands/
-│   ├── analyze.ts              # orchestrates fetch -> check -> report
-│   ├── batch.ts                # NDJSON batch mode with concurrency
-│   └── watch.ts                # checkpoint scanner
-├── lib/
-│   ├── banner.ts               # ASCII banner
-│   ├── cache.ts                # on-disk trace cache
-│   ├── concurrency.ts          # bounded parallel map
-│   ├── fetcher.ts              # gRPC fetch + normalize + signature resolver
-│   ├── reporter.ts             # human and JSON output
-│   ├── sigcache.ts             # persisted signature cache
-│   └── types.ts                # shared interfaces
-├── triage/
-│   ├── cli.ts                  # triage CLI entry
-│   ├── index.ts                # triage orchestrator
-│   ├── enrich.ts               # cross-invariant correlation, benign lookup
-│   ├── scoring.ts              # deterministic priority scoring
-│   ├── explain.ts              # LLM explanation layer (batched)
-│   ├── report.ts               # triage report emitter
-│   ├── benign.ts               # benign-pattern matcher
-│   ├── benign-patterns.json    # user-editable suppression library
-│   ├── history.ts              # novelty tracking
-│   ├── triage.config.json      # scoring weights
-│   └── types.ts                # triage types
-└── invariants/
-    ├── index.ts                # registry
-    ├── token-conservation.ts   # address-balance-delta
-    ├── mutable-access.ts       # public &mut return detection
-    ├── ownership-anomaly.ts    # unexpected transfers
-    ├── oracle-pattern.ts       # oracle + DeFi heuristic
-    ├── repeated-module-calls.ts
-    ├── reentrancy-pattern.ts   # A -> B -> A composition
-    ├── flash-loan-shaped.ts    # borrow -> action -> repay
-    └── capability-transfer.ts  # capability object transfers
-```
-
-The fetcher resolves each MoveCall's signature via `getMoveFunction` to
-determine `returnsMutableRef`. Results are cached in memory and on disk,
-keyed by `package::module::function`.
-
-## Caching
-
-Chase caches two things on disk:
-
-- Normalized traces at `~/.cache/chase/<digest>.json`
-- Move function signatures at `~/.cache/chase/signatures.json`
-
-Repeat analyses of the same digest are near-instant and avoid hitting the
-public fullnode. Signature resolution is skipped entirely for functions
-already cached.
-
-```bash
-npm run cache -- --dir      # print cache location
-npm run cache -- --clear    # wipe traces and signatures
-npm run cache                # show signature count
-```
-
-Override the cache directory with `CHASE_CACHE_DIR`. Bypass trace cache with
-`--no-cache`.
-
-## Testing
-
-Fixtures live in `test-cases/known-txs.json`. Run the suite:
-
-```bash
-./scripts/run-tests.sh
-./scripts/run-triage-tests.sh
-```
-
-Nine cases:
-
-- **mainnet** - clean order cancel, no violations
-- **mainnet** - aggregator swap, produces `ADDRESS_OUTFLOW` and `REENTRANCY_PATTERN`
-- **testnet** - synthetic `leak::leak_mut`, produces `MUTABLE_REFERENCE_RETURNED`
-- **testnet** - synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
-- **testnet** - synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
-- **testnet** - synthetic `hop::first -> hop::second -> hop::first`, produces `REENTRANCY_PATTERN`
-- **testnet** - synthetic `flash::flash_borrow -> flash::swap -> flash::flash_repay`, produces `FLASH_LOAN_SHAPED`
-- **testnet** - synthetic `cap::give_cap` transferring `TreasuryCap` to a non-sender, produces `CAPABILITY_TRANSFER` and `UNEXPECTED_TRANSFER`
-- **testnet** - synthetic `repeat::bump` called 5x, produces `REPEATED_MODULE_CALLS`
-
-The seven testnet cases come from a package in `test-cases/synthetic-leak/`.
-Testnet is wiped periodically, so those digests may eventually stop
-resolving. Re-publish the package and update `known-txs.json` when that
-happens.
-
-```bash
-cd test-cases/synthetic-leak
-sui client switch --env testnet
-sui move build
-sui client publish --gas-budget 100000000
-```
 
 ## Known limitations
 
@@ -496,18 +485,16 @@ sui client publish --gas-budget 100000000
 - **No testnet archival.** The archival fallback is mainnet-only. Testnet
   wipes periodically.
 
-- **Triage history is process-global.** `~/.cache/chase/triage-history.json`
-  accumulates signatures across runs. Novelty penalties kick in after 20
-  occurrences. Clear with `rm ~/.cache/chase/triage-history.json`.
+  
 
 ## Roadmap
 
 - [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise
 - [ ] Archival endpoint token support (`ARCHIVE_TOKEN` env var)
+- [ ] MCP server: refactor `runAnalysis` to take network as a parameter instead of reading `SUI_NETWORK` from env
 - [ ] Persist checkpoint cursor across watch runs
 - [ ] Additional invariants: dynamic field abuse, event-less state changes
 - [ ] Publish to npm so `npx` works without a git clone
-- [ ] Scout agent: autonomous target selection and scanning loop
 
 ## Development
 
