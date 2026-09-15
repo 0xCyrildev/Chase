@@ -1,0 +1,41 @@
+{
+  "exact": [
+    {
+      "pattern": "*::coin_utils::transfer_nonzero",
+      "reason": "Known aggregator helper, called repeatedly across hops",
+      "suppresses": ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"]
+    },
+    {
+      "pattern": "*::router::swap",
+      "reason": "DEX router entry point",
+      "suppresses": ["ORACLE_MANIPULATION_SUSPECTED"]
+    },
+    {
+      "pattern": "*::coin::*",
+      "reason": "Sui framework coin module",
+      "suppresses": ["REPEATED_MODULE_CALLS", "ADDRESS_OUTFLOW"]
+    },
+    {
+      "pattern": "*::balance::*",
+      "reason": "Sui framework balance module",
+      "suppresses": ["REPEATED_MODULE_CALLS"]
+    },
+    {
+      "pattern": "*::transfer::*",
+      "reason": "Sui framework transfer module",
+      "suppresses": ["REPEATED_MODULE_CALLS"]
+    }
+  ],
+  "heuristic": [
+    {
+      "pattern": "*::swap_router::*",
+      "reason": "DEX swap router helper",
+      "suppresses": ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"]
+    },
+    {
+      "pattern": "*::slippage::*",
+      "reason": "Slippage check helper",
+      "suppresses": ["REPEATED_MODULE_CALLS"]
+    }
+  ]
+}
