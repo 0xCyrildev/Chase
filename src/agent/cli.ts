@@ -7,9 +7,12 @@ import { mandateFromArgs } from "./mandate.js";
 import { scout } from "./scout.js";
 import { RealLLM } from "./llm.js";
 import { StubLLM } from "./stub-llm.js";
+import { RuleBasedLLM } from "./rules-llm.js";
 import { BudgetExceeded } from "./budget.js";
 
 dotenv.config({ quiet: true });
+
+type LlmMode = "real" | "rules" | "stub";
 
 const program = new Command();
 
@@ -27,14 +30,18 @@ program
   .option("--budget-tokens <n>", "Max LLM tokens", "50000")
   .option("--budget-minutes <n>", "Max wall clock in minutes", "15")
   .option("--dry-run", "Log decisions without executing scans")
-  .option("--real-llm", "Use the real LLM for decisions and summaries")
+  .option(
+    "--mode <mode>",
+    "Decision mode: real (LLM), rules (deterministic), stub (fixed responses)",
+    "rules"
+  )
   .option("--json", "Output report as JSON")
   .option("-o, --out <file>", "Write report to file")
   .option("-n, --network <net>", "Sui network", "mainnet")
   .action(async (opts) => {
     try {
       const mandate = mandateFromArgs(opts);
-      const llm = opts.realLlm ? new RealLLM() : new StubLLM();
+      const llm = buildLlm(opts.mode as LlmMode);
 
       const report = await scout(mandate, llm, {
         dryRun: opts.dryRun,
@@ -48,6 +55,7 @@ program
         console.log("=================\n");
         console.log(`Target:   ${report.mandate.target}`);
         console.log(`Goal:     ${report.mandate.goal}`);
+        console.log(`Mode:     ${opts.mode}`);
         console.log(`Started:  ${report.startedAt}`);
         console.log(`Finished: ${report.finishedAt}`);
         console.log(
@@ -78,5 +86,19 @@ program
       process.exit(2);
     }
   });
+
+function buildLlm(mode: LlmMode) {
+  switch (mode) {
+    case "real":
+      return new RealLLM();
+    case "rules":
+      return new RuleBasedLLM();
+    case "stub":
+      return new StubLLM();
+    default:
+      console.error(`[chase-hunt] unknown mode: ${mode}`);
+      process.exit(2);
+  }
+}
 
 program.parseAsync(process.argv);

@@ -26,7 +26,7 @@ Rules:
 4. If iteration is 5 or more, "stop" and report what you have.
 5. Otherwise, "continue" unless there's a clear reason to change the filter.
 
-Respond with JSON only. Schema:
+Respond with JSON only. No prose before or after. Schema:
 {
   "action": "continue" | "widen" | "narrow" | "stop",
   "reason": "one-sentence explanation",
@@ -49,8 +49,8 @@ interface LlmConfig {
   model: string;
 }
 
-const MAX_ATTEMPTS = 3;
-const BASE_DELAY_MS = 3000;
+const MAX_ATTEMPTS = 5;
+const BASE_DELAY_MS = 5000;
 
 function loadConfig(): LlmConfig | null {
   const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -59,7 +59,7 @@ function loadConfig(): LlmConfig | null {
   return {
     apiKey,
     endpoint: process.env.DEEPSEEK_ENDPOINT ?? "https://openrouter.ai/api/v1/chat/completions",
-    model: process.env.DEEPSEEK_MODEL ?? "deepseek/deepseek-r1:free",
+    model: process.env.DEEPSEEK_MODEL ?? "poolside/laguna-s-2.1:free",
   };
 }
 
@@ -67,7 +67,8 @@ async function callLlm(
   config: LlmConfig,
   system: string,
   user: string,
-  maxTokens: number
+  maxTokens: number,
+  forceJson = false
 ): Promise<string> {
   const body = JSON.stringify({
     model: config.model,
@@ -77,6 +78,7 @@ async function callLlm(
     ],
     max_tokens: maxTokens,
     temperature: 0.1,
+    ...(forceJson ? { response_format: { type: "json_object" } } : {}),
   });
 
   const args = [
@@ -107,9 +109,22 @@ async function callLlm(
         throw new Error(`API error: ${parsed.error.message ?? JSON.stringify(parsed.error)}`);
       }
 
-      const content = parsed?.choices?.[0]?.message?.content;
+      const choice = parsed?.choices?.[0];
+      const message = choice?.message;
+
+      let content: string | null = null;
+      if (typeof message?.content === "string" && message.content.length > 0) {
+        content = message.content;
+      } else if (typeof message?.reasoning === "string" && message.reasoning.length > 0) {
+        content = message.reasoning;
+      } else if (typeof choice?.text === "string" && choice.text.length > 0) {
+        content = choice.text;
+      }
+
       if (typeof content !== "string") {
-        throw new Error(`unexpected response shape: ${JSON.stringify(parsed).slice(0, 200)}`);
+        throw new Error(
+          `no usable content in response: ${JSON.stringify(parsed).slice(0, 300)}`
+        );
       }
 
       return content;
@@ -156,13 +171,13 @@ export class RealLLM implements ScoutLLM {
     );
 
     try {
-      const content = await callLlm(this.config, DECISION_SYSTEM_PROMPT, userPrompt, 256);
+      const content = await callLlm(this.config, DECISION_SYSTEM_PROMPT, userPrompt, 2048, true);
       const parsed = parseDecision(content);
 
       if (!parsed) {
         return {
           action: "stop",
-          reason: `LLM returned invalid JSON: ${content.slice(0, 100)}`,
+          reason: `LLM returned no parseable JSON: ${content.slice(0, 120)}`,
         };
       }
 
@@ -193,7 +208,7 @@ export class RealLLM implements ScoutLLM {
     );
 
     try {
-      const content = await callLlm(this.config, SUMMARY_SYSTEM_PROMPT, userPrompt, 512);
+      const content = await callLlm(this.config, SUMMARY_SYSTEM_PROMPT, userPrompt, 1024);
       return content || "(empty summary)";
     } catch (err: any) {
       return `LLM exception: ${err?.message ?? err}`;
@@ -202,8 +217,30 @@ export class RealLLM implements ScoutLLM {
 }
 
 function parseDecision(text: string): ScoutDecision | null {
+  if (!text) return null;
+
+  let cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  const start = cleaned.indexOf("{");
+  if (start === -1) return null;
+
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < cleaned.length; i++) {
+    if (cleaned[i] === "{") depth++;
+    else if (cleaned[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+  }
+
+  if (end === -1) return null;
+  cleaned = cleaned.slice(start, end + 1);
+
   try {
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
     const obj = JSON.parse(cleaned);
     if (
       typeof obj.action !== "string" ||

@@ -78,7 +78,7 @@ export async function scout(
     const decision = await llm.decide({
       mandate,
       iteration,
-      previousFindings: scanResults,
+      previousFindings: findings,
       currentFilter,
       remaining: budget.remaining(),
     });
