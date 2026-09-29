@@ -3,6 +3,11 @@ export interface BudgetLimits {
   maxLlmCalls: number;
   maxLlmTokens: number;
   maxWallMs: number;
+  /**
+   * RPC calls the scan phase may not spend, so that what it found can still be triaged and, if it
+   * escalates, re-read. Defaults to 20% of the budget (floor 4, capped at half the budget).
+   */
+  reserveForJudge?: number;
 }
 
 export interface BudgetUsage {
@@ -30,6 +35,22 @@ export class Budget {
   private startedAt = Date.now();
 
   constructor(private readonly limits: BudgetLimits) {}
+
+  /**
+   * Calls held back so findings can be judged. Capped at half the budget: a reserve larger than that
+   * would starve the scan instead of the triage, which is the same failure in the other direction.
+   */
+  get judgeReserve(): number {
+    const half = Math.max(1, Math.floor(this.limits.maxRpcCalls / 2));
+    const explicit = this.limits.reserveForJudge;
+    if (typeof explicit === "number") return Math.min(Math.max(explicit, 0), half);
+    return Math.min(Math.max(4, Math.ceil(this.limits.maxRpcCalls * 0.2)), half);
+  }
+
+  /** What the scan phase may still spend, with the judge reserve taken out. */
+  remainingForScan(): number {
+    return Math.max(0, this.remaining().rpc - this.judgeReserve);
+  }
 
   spendRpc(count = 1): void {
     this.rpcCalls += count;

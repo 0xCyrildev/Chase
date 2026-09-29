@@ -444,14 +444,17 @@ async function runScanPass(
   };
 
   for (const tx of listed.transactions) {
-    // A finding nobody tiered is half a result, and an escalation is a second fetch: keep enough
-    // budget behind the scan for triage and the investigator to actually run on what was found.
-    const reserve = triageReserve(results.length, triageEnabled);
+    // A finding nobody tiered is half a result, and an escalation is a second fetch. The reserve is
+    // the mandate's `budget.reserveForJudge` (default 20% of maxRpcCalls) or enough for the findings
+    // already pending, whichever is larger — so a scan can never spend the calls triage needs.
+    const reserve = triageEnabled
+      ? Math.max(budget.judgeReserve, triageReserve(results.length, true))
+      : 1;
     if (budget.remaining().rpc <= reserve) {
       if (verbose) {
         console.error(
-          `[scout] stopping pass: ${budget.remaining().rpc} rpc left, ${reserve} reserved for ` +
-            `${results.length} finding(s)${triageEnabled ? "" : " (triage disabled)"}`
+          `[scout] stopping pass: ${budget.remaining().rpc} rpc left, ${reserve} held back for ` +
+            `judgement${results.length > 0 ? ` of ${results.length} finding(s)` : ""}`
         );
       }
       break;

@@ -48,6 +48,18 @@ function optionalPositiveInt(
   return positiveInt(value, label);
 }
 
+function optionalNonNegativeInt(
+  value: string | undefined,
+  label: string
+): number | undefined {
+  if (value === undefined || value === "") return undefined;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) {
+    throw new Error(`${label} must be a whole number of at least 0, got: ${text || "(empty)"}`);
+  }
+  return Number.parseInt(text, 10);
+}
+
 export function loadMandate(path?: string): Mandate {
   if (!path) return { ...DEFAULT_MANDATE };
 
@@ -73,6 +85,19 @@ export function validateMandate(m: Mandate): Mandate {
   m.budget.maxLlmCalls = positiveInt(m.budget.maxLlmCalls, "Mandate budget.maxLlmCalls");
   m.budget.maxLlmTokens = positiveInt(m.budget.maxLlmTokens, "Mandate budget.maxLlmTokens");
   m.budget.maxWallMs = positiveInt(m.budget.maxWallMs, "Mandate budget.maxWallMs");
+  if (
+    m.budget.reserveForJudge !== undefined &&
+    m.budget.reserveForJudge !== null
+  ) {
+    const r = m.budget.reserveForJudge;
+    // 0 is a legitimate value: it means the operator wants no reserve. Junk is still rejected,
+    // because a NaN here silently disables the scan ceiling comparison.
+    if (!Number.isInteger(r) || r < 0) {
+      throw new Error(
+        `Mandate budget.reserveForJudge must be a whole number of at least 0, got: ${r}`
+      );
+    }
+  }
   return m;
 }
 
@@ -92,6 +117,7 @@ export function mandateFromArgs(args: Record<string, string | undefined>): Manda
     maxWallMs: args.budgetMinutes
       ? optionalPositiveInt(args.budgetMinutes, 1, "--budget-minutes") * 60 * 1000
       : DEFAULT_BUDGET.maxWallMs,
+    reserveForJudge: optionalNonNegativeInt(args.reserveJudge, "--reserve-judge"),
   };
 
   return validateMandate({ target, checkpoints, goal, budget });

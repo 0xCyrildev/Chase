@@ -9,6 +9,7 @@ import { RuleBasedLLM } from "./rules-llm.js";
 import { BudgetExceeded } from "./budget.js";
 import { toMarkdown, coverageCaveat, coverageSpan } from "./report-md.js";
 import { printBanner } from "../lib/banner.js";
+import { reportError } from "../lib/error.js";
 import { Network, resolveNetwork } from "../commands/analyze.js";
 
 dotenv.config({ quiet: true });
@@ -30,6 +31,10 @@ export function registerHunt(cmd: Command): Command {
     .option("--budget-llm <n>", "Max LLM calls", "10")
     .option("--budget-tokens <n>", "Max LLM tokens", "50000")
     .option("--budget-minutes <n>", "Max wall clock in minutes", "15")
+    .option(
+      "--reserve-judge <n>",
+      "RPC calls the scan may not spend, held back for triage and escalation (default: 20% of --budget-rpc, floor 4, capped at half the budget)"
+    )
     .option("--dry-run", "Log decisions without executing scans")
     .option("--verbose", "Log scan progress to stderr")
     .option(
@@ -86,7 +91,7 @@ export function registerHunt(cmd: Command): Command {
           console.error(`[chase-hunt] budget exhausted: ${err.message}`);
           process.exit(3);
         }
-        console.error("[chase-hunt] error:", err);
+        reportError("[chase-hunt] error:", err);
         process.exit(2);
       }
     });

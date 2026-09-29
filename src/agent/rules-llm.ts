@@ -86,7 +86,9 @@ export class RuleBasedLLM implements ScoutLLM {
             ? "This was an EMPTY SCAN, not a clean one: the range listed no transactions at all."
             : c.txsAnalyzed === 0
               ? `EMPTY AGAINST THE TARGET, not a clean scan: ${c.txsListed} transactions in range, none called ${input.mandate.target}.`
-              : "No violations detected within the covered range."
+              : c.txsTargetMissed > 0
+                ? `No violations in the ${c.txsAnalyzed} transaction(s) that reached ${input.mandate.target}; ${c.txsTargetMissed} inspected did not involve it.`
+                : "No violations detected within the covered range."
           : "Findings present. Recommend triage on the returned digests.",
       ]
         .filter((line): line is string => line !== null)

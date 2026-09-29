@@ -98,11 +98,26 @@ export class TraceFetcher {
     try {
       return await this.fetchFrom(this.fullnode, digest);
     } catch (err: any) {
-      if (err?.reason === "notFound" && this.archival) {
-        console.error(`[chase] not found on fullnode, trying archival...`);
+      if (err?.reason !== "notFound" || !this.archival) throw err;
+
+      console.error(`[chase] not found on fullnode, trying archival...`);
+      try {
         return await this.fetchFrom(this.archival, digest);
+      } catch (archiveErr: any) {
+        // Measured 2026-09-29: the public archive endpoint answers (it is not an auth wall) but returns
+        // notFound for digests the fullnode has already pruned — including two of this repo's own
+        // mainnet fixtures. So the fallback is attempted and does not recover history; say that rather
+        // than letting a second bare notFound imply someone typed the wrong digest.
+        if (archiveErr?.reason === "notFound") {
+          const e = new Error(
+            `transaction ${digest} not found on the fullnode or the archive endpoint — ` +
+              `pruned by the retention window (~21 days on public mainnet), or wrong network`
+          ) as Error & { reason?: string };
+          e.reason = "notFound";
+          throw e;
+        }
+        throw archiveErr;
       }
-      throw err;
     }
   }
 

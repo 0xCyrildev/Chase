@@ -7,6 +7,8 @@ export interface Mandate {
     maxLlmCalls: number;
     maxLlmTokens: number;
     maxWallMs: number;
+    /** RPC calls the scan phase may not spend, kept for triage and escalation. */
+    reserveForJudge?: number;
   };
 }
 

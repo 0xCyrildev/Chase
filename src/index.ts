@@ -11,6 +11,7 @@ import { clearCache, cacheDir } from "./lib/cache.js";
 import { clearSignatureCache, signatureCacheSize } from "./lib/sigcache.js";
 import { registerTriage } from "./triage/command.js";
 import { registerHunt } from "./agent/command.js";
+import { reportError } from "./lib/error.js";
 
 dotenv.config({ quiet: true });
 
@@ -34,7 +35,7 @@ program
     try {
       await analyzeCommand(digest, opts);
     } catch (err) {
-      console.error("[chase] error:", err);
+      reportError("[chase] error:", err);
       process.exit(2);
     }
   });
@@ -50,7 +51,7 @@ program
     try {
       await batchCommand(file, opts);
     } catch (err) {
-      console.error("[chase] error:", err);
+      reportError("[chase] error:", err);
       process.exit(2);
     }
   });
@@ -67,7 +68,7 @@ program
     try {
       await watchCommand(opts);
     } catch (err) {
-      console.error("[chase] error:", err);
+      reportError("[chase] error:", err);
       process.exit(2);
     }
   });

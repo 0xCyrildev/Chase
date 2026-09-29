@@ -2,6 +2,7 @@ import { Command } from "commander";
 import fs from "node:fs";
 import dotenv from "dotenv";
 import { printBanner } from "../lib/banner.js";
+import { reportError } from "../lib/error.js";
 import { triage } from "./index.js";
 import { printReport, toJson } from "./report.js";
 import { Tier } from "./types.js";
@@ -60,7 +61,7 @@ export function registerTriage(cmd: Command): Command {
         const escalating = report.summary.byTier.P0 + report.summary.byTier.P1;
         process.exit(escalating > 0 ? 1 : 0);
       } catch (err) {
-        console.error("[chase-triage] error:", err);
+        reportError("[chase-triage] error:", err);
         process.exit(2);
       }
     });
