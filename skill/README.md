@@ -16,6 +16,6 @@ unchanged. Its demo blocks were re-run and pasted verbatim, because their contri
 fabricated examples — outputs must reflect real model responses"*; the empty scan alongside the run that
 found signals is deliberate, not an oversight.
 
-Not yet done for the skills repo: a `scripts/` wrapper (every skill there ships one), a row in their root
-README's Skills table, and a real load test in VS Code/Cursor — the stdio server is verified by
-`npm run mcp:selftest`, those clients are not.
+Not yet done for the skills repo: a row in their root README's Skills table, and a real load test in VS
+Code/Cursor — the stdio server is verified by `npm run mcp:selftest`, those clients are not. The
+`scripts/` wrapper their skills ship is now present (`chase/scripts/chase-analyze.sh`).

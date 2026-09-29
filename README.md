@@ -169,12 +169,17 @@ was asked to do.
 
 ### MCP server
 
-Chase exposes four tools over the Model Context Protocol:
+Chase exposes six tools over the Model Context Protocol:
 
 - `chase_analyze` - fetch a trace and run invariants on a digest
 - `chase_query` - report signature cache state and cache directory
 - `chase_watch` - bounded checkpoint range scan with optional filter
 - `chase_triage` - run the triage layer over one or more digests
+- `chase_list` - list digests in a checkpoint range; with `target` + `inspect` it
+  verifies whether a package was actually involved, and reports how much of the
+  range it did *not* look at
+- `chase_hunt` - run the scout end to end under an explicit budget, returning
+  coverage alongside findings
 
 Run it:
 
@@ -457,6 +462,24 @@ A mandate is `{target, checkpoints, goal, budget}` with
 enforced, not advisory: exceeding any limit raises `BudgetExceeded` and the
 run stops with exit code `3`.
 
+The scan does not spend all of it. By default 20% of `maxRpcCalls` (floor 4,
+capped at half) is held back for triage and escalation, so findings come back
+judged instead of blank — a hunt that burned its last call on one more
+transaction used to return violations with no tier at all. Set it explicitly
+with `budget.reserveForJudge` in the mandate or `--reserve-judge <n>`; `0` means
+no reserve. The run says when it stops for that reason:
+
+```
+[scout] stopping pass: 8 rpc left, 8 held back for judgement
+```
+
+And the summary states how much of the target it actually reached, rather than
+letting a thin sample read as a clean bill of health:
+
+```
+No violations in the 2 transaction(s) that reached 0x1eabed…; 52 inspected did not involve it.
+```
+
 `--mode` picks the decision layer and defaults to `rules`, so a hunt is
 reproducible with no API key and no spend. `--mode real` asks the configured
 LLM; `--mode stub` is for tests. Whatever answers, the report keeps saying
@@ -581,6 +604,12 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ```bash
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
+npm run test:agent        # target matching, budget reserve, investigator,
+                          # batch shape, CLI validation — 34 checks, offline
+```
+
+```bash
+npm test                  # all three suites
 ```
 
 Both suites read committed fixtures, so they are offline and deterministic —
@@ -624,12 +653,16 @@ sui client publish --gas-budget 100000000
 
 ## Known limitations
 
-- **Retention window.** Public fullnodes prune historical transactions.
-  Anything older than roughly 21 days returns `NOT_FOUND`. The archival
-  fallback hits `archive.mainnet.sui.io`, but that endpoint requires an
-  `X-Token` header for authenticated access. For historical analysis at
-  scale, use a provider like Triton or Quicknode, or run your own archival
-  node.
+- **Retention window, and the archival fallback does not rescue it.** Public
+  fullnodes prune historical transactions; anything older than roughly 21 days
+  returns `not found`. Chase then tries
+  `archive.mainnet.sui.io` — measured 2026-09-29, that endpoint is reachable
+  without any token, but it also returns `not found` for digests the fullnode
+  has pruned, including two of this repo's own mainnet fixtures. So the
+  fallback is attempted and does not recover history; the error now says so
+  instead of reporting a bare second miss. Two of the nine fixtures can only be
+  re-analysed because their traces are committed — for real historical work,
+  use a provider like Triton or Quicknode, or run your own archival node.
 
 - **`balanceChanges` is address-scoped.** Shared-object balance changes
   appear as `effects.changedObjects` mutations, not as address deltas. This
@@ -677,7 +710,10 @@ sui client publish --gas-budget 100000000
 ## Roadmap
 
 - [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise
-- [ ] Archival endpoint token support (`ARCHIVE_TOKEN` env var)
+- [ ] Configurable RPC endpoints (`SUI_RPC_URL` / provider URLs) — so a Triton,
+      Quicknode or self-run archive can be used for historical analysis. The
+      public archive endpoint is reachable without a token but does not hold
+      pruned digests, so a token would not have fixed the retention gap.
 - [ ] Persist checkpoint cursor across watch runs
 - [ ] Additional invariants: dynamic field abuse, event-less state changes
 - [ ] Publish to npm so `npx` works without a git clone
