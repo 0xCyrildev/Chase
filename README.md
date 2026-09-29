@@ -47,15 +47,17 @@ npm install
 cp .env.example .env
 ```
 
-`.env` needs:
+`npm install` runs the build through `prepare`, and `dist/` is what the
+`chase`, `chase-triage`, `chase-hunt` and `chase-mcp` bins execute.
 
-```
-SUI_NETWORK=mainnet
-SUI_RPC_URL=https://fullnode.mainnet.sui.io:443
-```
+Nothing in `.env` is required to analyze a transaction — the default is
+mainnet with no configuration at all. `SUI_NETWORK` changes that default, and
+`LLM_API_KEY` / `LLM_ENDPOINT` / `LLM_MODEL` are read only by
+`chase triage --explain` and `chase hunt --mode real`.
 
-Only `SUI_NETWORK` is currently read. `SUI_RPC_URL` is reserved for a future
-configurable-endpoint feature.
+Endpoints are not configurable: Chase speaks gRPC to
+`https://fullnode.<network>.sui.io:443`, with `archive.mainnet.sui.io` as the
+mainnet fallback for pruned digests.
 
 ## Usage
 
@@ -499,6 +501,21 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
 ```
+
+Both suites read committed fixtures, so they are offline and deterministic —
+which also means they cannot tell you whether the transport still answers.
+For that:
+
+```bash
+npm run smoke:live                 # three live mainnet transactions, uncached
+CHASE_SMOKE_TXS=2 npm run smoke:live testnet
+```
+
+`smoke:live` runs against `dist/`, lists the checkpoint two behind the tip,
+analyzes up to three programmable transactions and exits non-zero if none
+could be analyzed. It is the check that catches a retention-window change, a
+gRPC shape break, or an endpoint that stopped responding — none of which a
+fixture can see.
 
 Nine cases:
 
