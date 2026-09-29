@@ -43,5 +43,25 @@ while IFS= read -r line; do
   echo
 done < <(jq -c '.cases[]' test-cases/known-txs.json)
 
+# Regression: one unresolvable digest in a batch file must not cost the caller the findings
+# already collected, and must not read as "nothing found".
+echo "── dead digest alongside a live one"
+mixed=$(mktemp)
+printf 'not-a-real-digest-0000000000000000000000000000000000000000000000000000\n' > "$mixed"
+printf '9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg\n' >> "$mixed"
+out=$(npx tsx src/triage/cli.ts "$mixed" --network testnet --json 2>/dev/null)
+rm -f "$mixed"
+
+n=$(echo "$out" | jq -r '.findings | length' 2>/dev/null || echo 0)
+s=$(echo "$out" | jq -r '.skipped | length' 2>/dev/null || echo 0)
+if [ "$n" -ge 1 ] && [ "$s" = "1" ]; then
+  echo "   pass (findings: $n, skipped: $s)"
+  PASS=$((PASS + 1))
+else
+  echo "   FAIL (findings: $n, skipped: $s — expected findings>=1 and skipped=1)"
+  FAIL=$((FAIL + 1))
+fi
+echo
+
 echo "passed: $PASS  failed: $FAIL"
 exit $((FAIL > 0 ? 1 : 0))

@@ -30,9 +30,16 @@ export interface TriagedFinding extends EnrichedViolation {
   confidence?: "low" | "medium" | "high";
 }
 
+export interface SkippedDigest {
+  digest: string;
+  network: string;
+  reason: string;
+}
+
 export interface TriageReport {
   generatedAt: string;
   digests: string[];
+  skipped: SkippedDigest[];
   summary: {
     total: number;
     byTier: Record<Tier, number>;

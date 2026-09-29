@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { runAnalysis, Network } from "./analyze.js";
+import { runAnalysis, Network, resolveNetwork } from "./analyze.js";
 import { toJson } from "../lib/reporter.js";
 import { pMap } from "../lib/concurrency.js";
 import { AnalysisReport } from "../lib/types.js";
@@ -33,7 +33,7 @@ export async function batchCommand(file: string, opts: BatchOptions) {
     process.exit(2);
   }
   const concurrency = Math.min(20, requestedConcurrency);
-  const network = opts.network ?? "mainnet";
+  const network = resolveNetwork(opts.network);
   console.error(
     `[chase] batch analyzing ${digests.length} digest(s) on ${network} with concurrency ${concurrency}...`
   );
@@ -63,7 +63,9 @@ export async function batchCommand(file: string, opts: BatchOptions) {
     .join("\n");
 
   if (opts.out) {
-    fs.writeFileSync(opts.out, ndjson);
+    // Trailing newline: `.join("\n")` leaves the last record unterminated, which is fine to read
+    // once and wrong for anything that appends to the file.
+    fs.writeFileSync(opts.out, ndjson ? `${ndjson}\n` : ndjson);
     console.error(`[chase] wrote ${results.length} results to ${opts.out}`);
   } else {
     console.log(ndjson);

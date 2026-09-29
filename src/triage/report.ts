@@ -1,5 +1,5 @@
 import pc from "picocolors";
-import { TriagedFinding, TriageReport, Tier, NextAction } from "./types.js";
+import { SkippedDigest, TriagedFinding, TriageReport, Tier, NextAction } from "./types.js";
 
 const TIER_COLOR: Record<Tier, (s: string) => string> = {
   P0: (s) => pc.bgRed(pc.white(s)),
@@ -12,7 +12,8 @@ const TIER_COLOR: Record<Tier, (s: string) => string> = {
 // Deliberately pure: a run must not age its own findings, so recording happens in triage() on request.
 export function formatReport(
   findings: TriagedFinding[],
-  digests: string[]
+  digests: string[],
+  skipped: SkippedDigest[] = []
 ): TriageReport {
   const byTier: Record<Tier, number> = { P0: 0, P1: 0, P2: 0, P3: 0, NOISE: 0 };
   const byAction: Record<NextAction, number> = {
@@ -28,10 +29,16 @@ export function formatReport(
   }
 
   const caveats = collectCaveats(findings);
+  if (skipped.length > 0) {
+    caveats.push(
+      `${skipped.length} of ${digests.length} digest(s) could not be analyzed and are listed under "skipped" — this report covers the rest, not the input.`
+    );
+  }
 
   return {
     generatedAt: new Date().toISOString(),
     digests,
+    skipped,
     summary: {
       total: findings.length,
       byTier,
@@ -84,9 +91,17 @@ export function printReport(report: TriageReport): void {
   console.log(
     `  ${pc.bgRed(pc.white(" P0 "))} ${report.summary.byTier.P0}   ${pc.red("P1")} ${report.summary.byTier.P1}   ${pc.yellow("P2")} ${report.summary.byTier.P2}   ${pc.blue("P3")} ${report.summary.byTier.P3}   ${pc.gray("NOISE")} ${report.summary.byTier.NOISE}`
   );
+  if (report.skipped.length > 0) {
+    console.log(
+      pc.yellow(
+        `  skipped: ${report.skipped.length} of ${report.digests.length} digest(s) — no findings from those, for the reason below`
+      )
+    );
+  }
   console.log();
 
   if (report.findings.length === 0) {
+    printSkipped(report);
     console.log(pc.green("No findings to triage.\n"));
     return;
   }
@@ -111,6 +126,8 @@ export function printReport(report: TriageReport): void {
     }
   }
 
+  printSkipped(report);
+
   if (report.caveats.length > 0) {
     console.log(pc.bold(`\nCaveats`));
     for (const c of report.caveats) {
@@ -118,6 +135,15 @@ export function printReport(report: TriageReport): void {
     }
   }
 
+  console.log();
+}
+
+function printSkipped(report: TriageReport): void {
+  if (report.skipped.length === 0) return;
+  console.log(pc.bold("Skipped digests"));
+  for (const s of report.skipped) {
+    console.log(`  ${pc.gray(s.digest.slice(0, 16))}… ${pc.yellow(s.network)}: ${s.reason}`);
+  }
   console.log();
 }
 

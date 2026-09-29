@@ -318,6 +318,11 @@ npm run triage -- <DIGEST> --record
 `--record` is the only path that writes the novelty history; without it a
 triage run reads counters but changes none.
 
+Triage accepts the `.ndjson` that `chase batch` writes. Digests that cannot
+be analyzed do not abort the run: they are listed under `skipped`, each with
+a reason, and the report says how many of the input it actually covered.
+A batch file with one pruned transaction used to return nothing at all.
+
 ### Scoring
 
 Each finding gets a priority score from 0 to 100, computed deterministically:
@@ -379,6 +384,11 @@ agent's `--mode real` reads the same three variables.
 `test-cases/known-txs.json` carries an `expectTiers` array per case.
 `./scripts/run-triage-tests.sh` checks each fixture produces the expected
 tier set. Runs offline, no LLM calls.
+
+The suite ends with one inline case that no fixture can express: a batch file
+holding an unresolvable digest next to a live one must report the live finding
+*and* name the skipped digest. A triage report that quietly covered less than
+its input is the failure that case guards.
 
 ## Hunt
 
