@@ -2,6 +2,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 
 const LIVE = process.env.CHASE_MCP_LIVE === "1";
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -11,6 +13,12 @@ const FIXTURES = path.join(ROOT, "test-cases", "fixtures");
 const MAINNET_TX = "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5";
 const TESTNET_TX = "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg";
 const SYSTEM_TX = "4kcuJ7ThtJRuAKtF2U4frYf7AK7q8qFfsnNdp5t88XRq";
+
+// Live cases fetch real transactions and the server caches whatever it fetches. Pointing that at the
+// committed fixture set lets a test run mutate the thing that makes tests reproducible — 58 traces
+// appeared in test-cases/fixtures/mainnet after one live run — so live mode works on a throwaway copy.
+const cacheDir = LIVE ? fs.mkdtempSync(path.join(os.tmpdir(), "chase-selftest-")) : FIXTURES;
+if (LIVE) fs.cpSync(FIXTURES, cacheDir, { recursive: true });
 
 let pass = 0;
 let fail = 0;
@@ -31,7 +39,7 @@ await client.connect(
     command: "npx",
     args: ["tsx", serverPath],
     cwd: ROOT,
-    env: { ...process.env, CHASE_CACHE_DIR: FIXTURES } as any,
+    env: { ...process.env, CHASE_CACHE_DIR: cacheDir } as any,
   })
 );
 
@@ -156,5 +164,7 @@ if (LIVE) {
 }
 
 await client.close();
+if (LIVE) fs.rmSync(cacheDir, { recursive: true, force: true });
+
 console.log(`\npassed: ${pass}  failed: ${fail}`);
 process.exit(fail > 0 ? 1 : 0);
