@@ -164,6 +164,14 @@ npx @modelcontextprotocol/inspector npx tsx src/mcp-server.ts
 
 The server speaks MCP protocol version 2025-06-18 over stdio.
 
+### As an agent skill
+
+`skill/chase/` packages Chase as a skill in the format used by
+[pashov/skills](https://github.com/pashov/skills): `SKILL.md` for the agent (tools, workflow, how to read
+coverage honestly, known limits), `README.md` for humans, and `references/` holding two real hunt
+reports — one that found signals on routed Cetus volume, and the empty scan from before the target
+matcher was fixed.
+
 ## Invariants
 
 Chase ships with eight invariant checks. Each is intentionally conservative:
