@@ -2,11 +2,13 @@
 /**
  * Offline regression tests for the paths that only ever had manual evidence: the target matcher that
  * replaced the gRPC moveCall filter, the budget reserve that keeps triage from being starved, the
- * investigator that has never run against live P0 traffic, batch's output shape, and the argument
- * validation that a CLI user sees first.
+ * investigator, batch's output shape, and the argument validation that a CLI user sees first.
  *
- * No network. Traces come from the committed fixtures and the history store is disabled, so a failure
- * here means the code changed, not that a fullnode moved.
+ * Traces come from the committed fixtures and the history store is disabled, so a failure here means
+ * the code changed, not that a fullnode moved. One exception, noted where it happens: the
+ * "unanalyzable digest" case deliberately resolves nothing and so does reach the network — its
+ * assertion (needs-review, never benign) holds with or without connectivity, because both a pruned
+ * digest and an unreachable endpoint take the same path through investigate().
  */
 import path from "node:path";
 import fs from "node:fs";
@@ -161,6 +163,8 @@ check("the P0 is classified as suspicious", p0.verdict === "suspicious", `${p0.v
 check("the verdict carries the tier it came from", typeof p0.tier === "string" && p0.tier.length > 0, String(p0.tier));
 
 // A digest that cannot be re-analyzed must degrade honestly rather than invent a verdict.
+// This is the one case in this file that touches the network: the fixture trace is not committed and
+// the digest is pruned, so investigate() sees a failure either way. That is the point being asserted.
 const dead = await investigate(
   { digest: "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7", checkpoint: "1", violations: [{ type: "X", severity: "low", message: "m" }] } as any,
   "mainnet"
