@@ -54,7 +54,9 @@ not: another static auditor.
 ## Before opening it
 
 - [x] Public repo, OSI licence (MIT)
-- [x] Works without an API key (`npm install` → `chase analyze <digest>`)
+- [x] Works without an API key — `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
+- [x] Live on npm (`@zeroxcyril/chase`, 0.1.0 + 0.1.1), so a reviewer can install it in one command rather
+      than cloning
 - [x] Description matches neighbours' length; no marketing superlatives
 - [ ] Confirm the row lands under `Free & Open Source → Move/Sui`, alphabetised — `0xCyrildev` sorts first
 - [ ] One link row only; resist the temptation to also add it under Multi-Language (it is Sui-specific)
