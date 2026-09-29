@@ -122,7 +122,15 @@ export async function scout(
       continue;
     }
 
-    const pass = await runScanPass(currentFilter, mandate, budget, network, verbose, seen);
+    const pass = await runScanPass(
+      currentFilter,
+      mandate,
+      budget,
+      network,
+      verbose,
+      seen,
+      opts.triage !== false
+    );
     findings.push(...pass.results);
     lastPassFindings = pass.results;
 
@@ -336,7 +344,8 @@ async function runScanPass(
   budget: Budget,
   network: "mainnet" | "testnet" | "devnet",
   verbose: boolean,
-  seen: Set<string>
+  seen: Set<string>,
+  triageEnabled: boolean
 ): Promise<PassResult> {
   const fetcher = new TraceFetcher(network, true);
 
@@ -435,9 +444,15 @@ async function runScanPass(
   };
 
   for (const tx of listed.transactions) {
-    if (budget.remaining().rpc <= 1) {
+    // A finding nobody tiered is half a result, and an escalation is a second fetch: keep enough
+    // budget behind the scan for triage and the investigator to actually run on what was found.
+    const reserve = triageReserve(results.length, triageEnabled);
+    if (budget.remaining().rpc <= reserve) {
       if (verbose) {
-        console.error(`[scout] stopping pass: only ${budget.remaining().rpc} rpc calls left`);
+        console.error(
+          `[scout] stopping pass: ${budget.remaining().rpc} rpc left, ${reserve} reserved for ` +
+            `${results.length} finding(s)${triageEnabled ? "" : " (triage disabled)"}`
+        );
       }
       break;
     }
@@ -533,4 +548,15 @@ async function runScanPass(
     txsErrored,
     complete: listed.complete,
   };
+}
+
+/**
+ * Calls to leave unspent so what was found can still be judged. Triage resolves one digest per
+ * finding (its trace is already cached) and an escalated finding costs the investigator a fetch on
+ * top, so a scan that spends everything returns findings with no tier — which is how the scout's
+ * results were being lost behind its own budget.
+ */
+function triageReserve(pendingFindings: number, triageEnabled: boolean): number {
+  if (!triageEnabled) return 1;
+  return 1 + (pendingFindings > 0 ? pendingFindings * 3 : 2);
 }
