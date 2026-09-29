@@ -105,6 +105,7 @@ export class Budget {
     return (
       this.rpcCalls >= this.limits.maxRpcCalls * 0.9 ||
       this.llmCalls >= this.limits.maxLlmCalls * 0.9 ||
+      this.llmTokens >= this.limits.maxLlmTokens * 0.9 ||
       this.elapsedMs() >= this.limits.maxWallMs * 0.9
     );
   }

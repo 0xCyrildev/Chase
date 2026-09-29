@@ -27,7 +27,12 @@ export async function batchCommand(file: string, opts: BatchOptions) {
     process.exit(2);
   }
 
-  const concurrency = Math.max(1, Math.min(20, parseInt(opts.concurrency ?? "5", 10)));
+  const requestedConcurrency = parseInt(opts.concurrency ?? "5", 10);
+  if (!Number.isInteger(requestedConcurrency) || requestedConcurrency < 1) {
+    console.error(`[chase] --concurrency must be an integer of 1 or more`);
+    process.exit(2);
+  }
+  const concurrency = Math.min(20, requestedConcurrency);
   const network = opts.network ?? "mainnet";
   console.error(
     `[chase] batch analyzing ${digests.length} digest(s) on ${network} with concurrency ${concurrency}...`
@@ -68,5 +73,21 @@ export async function batchCommand(file: string, opts: BatchOptions) {
     (n, r) => n + ("violations" in r ? r.violations.length : 0),
     0
   );
-  process.exit(totalViolations > 0 ? 1 : 0);
+  const failed = results.filter((r) => "error" in r).length;
+  const incompleteDetectors = results.reduce(
+    (n, r) => n + ("detectorErrors" in r ? r.detectorErrors.length : 0),
+    0
+  );
+
+  console.error(
+    `[chase] batch: ${results.length - failed}/${results.length} analysed, ` +
+      `${totalViolations} violation(s), ${incompleteDetectors} detector error(s)`
+  );
+
+  if (failed === results.length) {
+    console.error("[chase] every digest failed to analyse; this run proved nothing");
+    process.exit(2);
+  }
+
+  process.exit(totalViolations > 0 ? 1 : failed > 0 || incompleteDetectors > 0 ? 2 : 0);
 }

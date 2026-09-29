@@ -1,5 +1,6 @@
-import { ScoutLLM, ScoutDecisionInput, ScoutSummaryInput } from "./scout.js";
+import { ScoutLLM, ScoutDecisionInput, ScoutSummaryInput, SummaryOutcome } from "./scout.js";
 import { ScoutDecision } from "./types.js";
+import { coverageCaveat } from "./report-md.js";
 
 export class StubLLM implements ScoutLLM {
   async decide(input: ScoutDecisionInput): Promise<ScoutDecision> {
@@ -22,7 +23,7 @@ export class StubLLM implements ScoutLLM {
     return { action: "continue", reason: "stub: keep scanning" };
   }
 
-  async summarize(input: ScoutSummaryInput): Promise<string> {
+  async summarize(input: ScoutSummaryInput): Promise<SummaryOutcome> {
     const total = input.findings.length;
     const byType: Record<string, number> = {};
     for (const f of input.findings) {
@@ -30,13 +31,15 @@ export class StubLLM implements ScoutLLM {
         byType[v.type] = (byType[v.type] ?? 0) + 1;
       }
     }
+    const c = input.coverage;
     const lines = [
       `Scanned for target ${input.mandate.target}`,
       `Goal: ${input.mandate.goal}`,
+      `Coverage: ${coverageCaveat(c)}; ${c.txsListed} listed, ${c.txsAnalyzed} analyzed`,
       `Total findings: ${total}`,
       `Breakdown: ${JSON.stringify(byType)}`,
       `Decisions: ${input.decisions.map((d) => d.action).join(" -> ")}`,
     ];
-    return lines.join("\n");
+    return { text: lines.join("\n"), tokens: 0 };
   }
 }

@@ -22,8 +22,21 @@ export function printReport(report: AnalysisReport): void {
     )
   );
 
+  if (report.detectorErrors?.length) {
+    console.log(
+      pc.red(
+        `\n${report.detectorErrors.length} detector(s) failed, so this report is INCOMPLETE:`
+      )
+    );
+    for (const e of report.detectorErrors) console.log(pc.red(`  ! ${e}`));
+  }
+
   if (report.violations.length === 0) {
-    console.log(pc.green(`\n✓ No violations detected.\n`));
+    console.log(
+      report.detectorErrors?.length
+        ? pc.red(`\nNo violations found by the detectors that did run.\n`)
+        : pc.green(`\n✓ No violations detected.\n`)
+    );
     return;
   }
 

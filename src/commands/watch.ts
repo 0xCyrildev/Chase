@@ -1,5 +1,5 @@
-import { TraceFetcher } from "../lib/fetcher.js";
-import { runAnalysis, Network } from "./analyze.js";
+import { TraceFetcher, NonProgrammableTransaction } from "../lib/fetcher.js";
+import { runAnalysis, resolveNetwork, Network } from "./analyze.js";
 
 interface WatchOptions {
   from?: string;
@@ -9,34 +9,72 @@ interface WatchOptions {
 }
 
 export async function watchCommand(opts: WatchOptions) {
-  const network: Network = opts.network ?? "mainnet";
+  const network = resolveNetwork(opts.network);
   const fetcher = new TraceFetcher(network, true);
-  const limit = opts.limit ? parseInt(opts.limit, 10) : Infinity;
 
-  let cursor: bigint;
-  if (opts.from) {
-    cursor = BigInt(opts.from);
+  let limit: number;
+  if (opts.limit === undefined) {
+    limit = Infinity;
   } else {
-    const { current, lowest } = await fetcher.getCheckpointHeight();
-    cursor = current - 2n;
-    console.error(`[chase] tip=${current} lowest=${lowest} starting=${cursor}`);
+    limit = Number(opts.limit);
+    if (!Number.isInteger(limit) || limit < 1) {
+      console.error(`[chase] --limit must be a positive whole number, got: ${opts.limit}`);
+      process.exit(2);
+    }
   }
 
-  console.error(`[chase] watching ${network} from checkpoint ${cursor}`);
+  let cursor: bigint;
+  const { current, lowest } = await fetcher.getCheckpointHeight();
+
+  if (opts.from !== undefined) {
+    if (!/^\d+$/.test(opts.from.trim())) {
+      console.error(`[chase] --from must be a checkpoint number, got: ${opts.from}`);
+      process.exit(2);
+    }
+    cursor = BigInt(opts.from.trim());
+    if (lowest > 0n && cursor < lowest) {
+      console.error(
+        `[chase] --from ${cursor} is below this endpoint's retention floor (${lowest}); ` +
+          `those checkpoints would silently yield nothing. Start at ${lowest} or use the archive endpoint.`
+      );
+      process.exit(2);
+    }
+  } else {
+    cursor = current - 2n;
+  }
+
+  console.error(`[chase] watching ${network} from checkpoint ${cursor} (tip=${current}, lowest=${lowest})`);
 
   let processed = 0;
+  const unreadable: string[] = [];
+  const empty: string[] = [];
+  let totalChecked = 0;
+  let totalFlagged = 0;
+
   while (processed < limit) {
     let digests: string[] = [];
     try {
       digests = await fetcher.getCheckpointTransactions(cursor);
     } catch (err: any) {
-      console.error(`[chase] checkpoint ${cursor} fetch failed: ${err?.message ?? err}`);
+      const code = err?.code ? `[${err.code}] ` : "";
+      console.error(
+        `[chase] checkpoint ${cursor} fetch failed: ${code}${err?.message || err?.name || "unknown error"}`
+      );
+      unreadable.push(cursor.toString());
       cursor++;
       processed++;
       continue;
     }
 
-    console.error(`[chase] checkpoint ${cursor}: ${digests.length} txs`);
+    if (digests.length === 0) {
+      empty.push(cursor.toString());
+      console.error(`[chase] checkpoint ${cursor}: 0 txs (empty or not yet indexed)`);
+      if (cursor >= current) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    } else {
+      console.error(`[chase] checkpoint ${cursor}: ${digests.length} txs`);
+    }
 
     let checked = 0;
     let flagged = 0;
@@ -48,6 +86,7 @@ export async function watchCommand(opts: WatchOptions) {
       }
 
       const report = await tryAnalyze(digest, opts.filter, network);
+      if (report === undefined) continue;
       if (report === null) {
         await new Promise((r) => setTimeout(r, 2000));
         const retried = await tryAnalyze(digest, opts.filter, network, true);
@@ -77,8 +116,21 @@ export async function watchCommand(opts: WatchOptions) {
     }
 
     console.error(`[chase] checkpoint ${cursor} done: ${flagged}/${checked} flagged`);
+    totalChecked += checked;
+    totalFlagged += flagged;
     cursor++;
     processed++;
+  }
+
+  console.error(
+    `[chase] watched ${processed} checkpoint(s): ${totalFlagged}/${totalChecked} transactions flagged` +
+      (unreadable.length ? `, ${unreadable.length} checkpoint(s) UNREADABLE [${unreadable.join(", ")}]` : "") +
+      (empty.length ? `, ${empty.length} empty` : "")
+  );
+
+  if (unreadable.length > 0) {
+    console.error("[chase] coverage was incomplete, so this run did not survey the whole range");
+    process.exit(2);
   }
 }
 
@@ -90,12 +142,14 @@ interface WatchViolation {
   count?: number;
 }
 
+// null means "worth one retry because the tx may not be indexed yet";
+// undefined means a permanent skip, which must not cost a second fetch.
 async function tryAnalyze(
   digest: string,
   filter: string | undefined,
   network: Network,
   silent = false
-): Promise<{ violations: WatchViolation[] } | null> {
+): Promise<{ violations: WatchViolation[] } | null | undefined> {
   try {
     const report = await runAnalysis(digest, false, true, network);
 
@@ -116,18 +170,18 @@ async function tryAnalyze(
       })),
     };
   } catch (err: any) {
-    const msg = err?.message ?? String(err);
-
-    if (msg.includes("Only programmable transactions")) {
-      return null;
+    if (err instanceof NonProgrammableTransaction) {
+      return undefined;
     }
 
-    if (msg.includes("not found") || msg.includes("notFound")) {
+    const msg = err?.message ?? String(err);
+
+    if (err?.reason === "notFound" || msg.includes("not found")) {
       if (!silent) console.error(`[chase] ${digest.slice(0, 16)}… not indexed yet, retrying`);
       return null;
     }
 
     if (!silent) console.error(`[chase] ${digest.slice(0, 16)}… error: ${msg}`);
-    return null;
+    return undefined;
   }
 }

@@ -30,44 +30,55 @@ export const reentrancyPattern: InvariantChecker = {
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const cmds = trace.ptbCommands;
+    const keys = cmds.map(callKey);
 
     const firstSeen = new Map<string, number>();
+    const prevSeen = new Map<string, number>();
 
     for (let i = 0; i < cmds.length; i++) {
-      const a = callKey(cmds[i]);
+      const a = keys[i];
       if (!a) continue;
 
-      if (!firstSeen.has(a)) {
+      const start = firstSeen.get(a);
+      if (start === undefined) {
         firstSeen.set(a, i);
+        prevSeen.set(a, i);
         continue;
       }
 
-      const start = firstSeen.get(a)!;
-      let sawOther = false;
-      let otherKey = "";
-
-      for (let j = start + 1; j < i; j++) {
-        const b = callKey(cmds[j]);
+      // The call the re-entry actually follows: walk *backwards* from i-1 and take the nearest
+      // different function. Scanning forwards from `start` (what this detector used to do)
+      // labelled every later repeat with the earliest intervening call, so [a,b,a,c,a] reported
+      // both repeats as "intervenedBy b" and mis-described the second one's predecessor.
+      let intervening = -1;
+      for (let j = i - 1; j > start; j--) {
+        const b = keys[j];
         if (b && b !== a) {
-          sawOther = true;
-          otherKey = b;
+          intervening = j;
           break;
         }
       }
 
-      if (sawOther) {
-        violations.push({
-          type: "REENTRANCY_PATTERN",
-          severity: "medium",
-          message: `${shortKey(a)} re-entered after call to ${shortKey(otherKey)} (cmds ${start} -> ${i})`,
-          evidence: {
-            function: a,
-            firstIndex: start,
-            secondIndex: i,
-            intervenedBy: otherKey,
-          },
-        });
-      }
+      if (intervening === -1) continue;
+
+      const intervenedBy = keys[intervening]!;
+
+      violations.push({
+        type: "REENTRANCY_PATTERN",
+        severity: "medium",
+        message: `${shortKey(a)} re-entered at cmd[${i}] after call to ${shortKey(intervenedBy)} ` +
+          `(cmds ${start} -> ${intervening} -> ${i}, previous entry of ${shortKey(a)} at cmd[${prevSeen.get(a)!}])`,
+        evidence: {
+          function: a,
+          firstIndex: start,
+          secondIndex: i,
+          priorOccurrenceIndex: prevSeen.get(a),
+          interveningIndex: intervening,
+          intervenedBy,
+        },
+      });
+
+      prevSeen.set(a, i);
     }
 
     return violations;

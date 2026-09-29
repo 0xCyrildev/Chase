@@ -14,6 +14,11 @@ export interface AnalysisReport {
   sender: string;
   success: boolean;
   violations: Violation[];
+  /**
+   * Detectors that threw while running. A report with detector errors is not a clean report:
+   * an absent finding and an uncomputed finding are different statements.
+   */
+  detectorErrors: string[];
   stats: {
     balanceChanges: number;
     objectChanges: number;
@@ -30,6 +35,7 @@ export interface InvariantChecker {
 
 export interface SuiTransactionTrace {
   digest: string;
+  network?: "mainnet" | "testnet" | "devnet";
   sender: string;
   success: boolean;
   balanceChanges: BalanceChange[];
@@ -59,6 +65,7 @@ export interface PTBCommand {
   packageId?: string;
   module?: string;
   function?: string;
+  /** true/false are determined answers; undefined means the signature could not be resolved. */
   returnsMutableRef?: boolean;
 }
 

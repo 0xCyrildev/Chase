@@ -1,23 +1,63 @@
 {
-  "name": "chase",
+  "name": "@0xcyrildev/chase",
   "version": "0.1.0",
-  "description": "Chase — dynamic analysis tool for Sui Move transactions",
-  "main": "dist/index.js",
+  "description": "Chase — dynamic analysis for Sui Move transactions. Invariant checks over real execution traces, deterministic triage, and a budget-bounded scout agent. CLI, library and MCP server.",
+  "keywords": [
+    "sui",
+    "move",
+    "dynamic-analysis",
+    "security",
+    "smart-contracts",
+    "mcp"
+  ],
+  "license": "MIT",
   "type": "module",
+  "main": "./dist/exports.js",
+  "types": "./dist/exports.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/exports.d.ts",
+      "import": "./dist/exports.js"
+    },
+    "./package.json": "./package.json"
+  },
   "bin": {
     "chase": "./dist/index.js",
+    "chase-hunt": "./dist/agent/cli.js",
+    "chase-triage": "./dist/triage/cli.js",
     "chase-mcp": "./dist/mcp-server.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "test-cases",
+    "scripts",
+    ".env.example",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xCyrildev/Chase.git"
   },
   "scripts": {
     "analyze": "tsx src/index.ts analyze",
     "batch": "tsx src/index.ts batch",
     "watch": "tsx src/index.ts watch",
     "cache": "tsx src/index.ts cache",
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
+    "prepare": "npm run build",
     "start": "node dist/index.js",
     "mcp": "tsx src/mcp-server.ts",
     "triage": "tsx src/triage/cli.ts",
-    "hunt": "tsx src/agent/cli.ts"
+    "hunt": "tsx src/agent/cli.ts",
+    "test": "./scripts/run-tests.sh && ./scripts/run-triage-tests.sh",
+    "typecheck": "tsc --noEmit",
+    "mcp:selftest": "tsx scripts/mcp-selftest.ts",
+    "mcp:selftest:live": "CHASE_MCP_LIVE=1 tsx scripts/mcp-selftest.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -34,5 +74,8 @@
     "ts-node": "^10.9.2",
     "tsx": "^4.23.13",
     "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

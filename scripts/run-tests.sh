@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+# Regression fixtures are bundled in the repo, so the suites run offline on a fresh clone.
+# Without this the tests silently depend on a developer machine cache and on testnet not wiping.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CHASE_CACHE_DIR="$SCRIPT_DIR/../test-cases/fixtures"
+
 PASS=0
 FAIL=0
 
@@ -15,7 +20,7 @@ while IFS= read -r line; do
   echo "   network: $network"
 
   tmp=$(mktemp)
-  SUI_NETWORK="$network" npx tsx src/index.ts analyze "$digest" --json > "$tmp" 2>/dev/null || true
+  npx tsx src/index.ts analyze "$digest" --network "$network" --json > "$tmp" 2>/dev/null || true
   output=$(cat "$tmp")
   rm -f "$tmp"
 

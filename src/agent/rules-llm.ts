@@ -1,5 +1,6 @@
-import { ScoutLLM, ScoutDecisionInput, ScoutSummaryInput } from "./scout.js";
+import { ScoutLLM, ScoutDecisionInput, ScoutSummaryInput, SummaryOutcome } from "./scout.js";
 import { ScoutDecision } from "./types.js";
+import { coverageCaveat, coverageSpan } from "./report-md.js";
 
 /**
  * Deterministic replacement for the LLM decision layer. Implements the same
@@ -42,7 +43,7 @@ export class RuleBasedLLM implements ScoutLLM {
     return { action: "continue", reason: "scanning with current filter" };
   }
 
-  async summarize(input: ScoutSummaryInput): Promise<string> {
+  async summarize(input: ScoutSummaryInput): Promise<SummaryOutcome> {
     const byType: Record<string, number> = {};
     for (const f of input.findings) {
       for (const v of f.violations) {
@@ -59,15 +60,36 @@ export class RuleBasedLLM implements ScoutLLM {
 
     const decisionChain = input.decisions.map((d) => d.action).join(" -> ");
 
-    return [
-      `Scanned ${input.mandate.target} over a ${input.mandate.windowSeconds}s window`,
-      `for goal: "${input.mandate.goal}".`,
-      `Findings: ${input.findings.length} (${typeBreakdown}).`,
-      `Decision chain: ${decisionChain}.`,
-      `Budget used: ${input.usage.rpcCalls} RPC, ${input.usage.llmCalls} LLM calls, ${input.usage.elapsedMs}ms.`,
-      input.findings.length === 0
-        ? "No violations detected. Recommend widening the window or lowering the filter specificity."
-        : "Findings present. Recommend triage on the returned digests.",
-    ].join(" ");
+    const c = input.coverage;
+    const span = coverageSpan(c);
+    const covered =
+      c.startCheckpoint && c.endCheckpoint
+        ? `seq ${c.startCheckpoint}..${c.endCheckpoint}`
+        : "no range";
+
+    const degraded = input.decisions.filter((d) => d.degraded).length;
+
+    return {
+      text: [
+        `Scanned ${input.mandate.target} over ${c.passes} passes spanning seq ${covered.replace("seq ", "")} (${span ?? 0} checkpoints wide;`,
+        `${c.txsListed} txs listed, ${c.txsAnalyzed} analyzed)`,
+        `for goal: "${input.mandate.goal}".`,
+        `Coverage: ${coverageCaveat(c)}.`,
+        degraded > 0
+          ? `${degraded} of ${input.decisions.length} decisions came from a degraded backend, not from a model.`
+          : null,
+        `Findings: ${input.findings.length} (${typeBreakdown}).`,
+        `Decision chain: ${decisionChain}.`,
+        `Budget used: ${input.usage.rpcCalls} RPC, ${input.usage.llmCalls} LLM calls, ${input.usage.llmTokens} tokens, ${input.usage.elapsedMs}ms.`,
+        input.findings.length === 0
+          ? c.txsListed === 0
+            ? "This was an EMPTY SCAN, not a clean one: no transaction matched the target filter."
+            : "No violations detected within the covered range."
+          : "Findings present. Recommend triage on the returned digests.",
+      ]
+        .filter((line): line is string => line !== null)
+        .join(" "),
+      tokens: 0,
+    };
   }
 }

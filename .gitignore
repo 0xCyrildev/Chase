@@ -17,6 +17,9 @@ reports/*.json
 probe.mjs
 *.log
 
+# Project memory — working notes, kept local (this repo is public)
+AGENTS.md
+
 # OS / editor
 .DS_Store
 .vscode/

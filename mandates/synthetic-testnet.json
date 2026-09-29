@@ -1,0 +1,11 @@
+{
+  "target": "0x1af902d9016a8348d87b08331a48f036e428911db0bf4180e04cbbb898afeb7c",
+  "checkpoints": 20,
+  "goal": "verify positive controls fire on testnet",
+  "budget": {
+    "maxRpcCalls": 200,
+    "maxLlmCalls": 5,
+    "maxLlmTokens": 25000,
+    "maxWallMs": 180000
+  }
+}

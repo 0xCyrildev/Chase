@@ -3,28 +3,54 @@ import { InvariantChecker, SuiTransactionTrace, Violation } from "../lib/types.j
 const ORACLE_KEYWORDS = ["update_price", "set_price", "refresh", "oracle"];
 const DEFI_KEYWORDS = ["swap", "liquidate", "borrow", "withdraw"];
 
+function matches(fn: string | undefined, keywords: string[]): boolean {
+  if (!fn) return false;
+  const lower = fn.toLowerCase();
+  return keywords.some((k) => lower.includes(k));
+}
+
+function isOracleCall(fn: string | undefined): boolean {
+  return matches(fn, ORACLE_KEYWORDS);
+}
+
+function isDefiCall(fn: string | undefined): boolean {
+  return matches(fn, DEFI_KEYWORDS);
+}
+
 export const oraclePattern: InvariantChecker = {
   name: "oracle-pattern",
-  description: "Detects oracle update + DeFi action in same PTB (manipulation suspect)",
+  description:
+    "Detects an oracle update followed by a DeFi action anywhere later in the same PTB (manipulation suspect)",
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
+    const cmds = trace.ptbCommands;
 
-    const oracleIdx = trace.ptbCommands.findIndex(
-      (c) => c.function && ORACLE_KEYWORDS.some((k) => c.function!.toLowerCase().includes(k))
-    );
+    // Any ordered pair (oracle index < DeFi index) is a candidate. Anchoring on the *first*
+    // occurrence of each keyword class missed the real shape — e.g.
+    // [swap_exact, update_price, liquidate] has its first DeFi call before its first oracle
+    // call, so the update_price -> liquidate sequence was never reported.
+    for (let oracleIdx = 0; oracleIdx < cmds.length; oracleIdx++) {
+      if (!isOracleCall(cmds[oracleIdx].function)) continue;
 
-    const defiIdx = trace.ptbCommands.findIndex(
-      (c) => c.function && DEFI_KEYWORDS.some((k) => c.function!.toLowerCase().includes(k))
-    );
+      let defiIdx = -1;
+      for (let i = oracleIdx + 1; i < cmds.length; i++) {
+        if (isDefiCall(cmds[i].function)) {
+          defiIdx = i;
+          break;
+        }
+      }
 
-    if (oracleIdx !== -1 && defiIdx !== -1 && defiIdx > oracleIdx) {
+      if (defiIdx === -1) continue;
+
       violations.push({
         type: "ORACLE_MANIPULATION_SUSPECTED",
         severity: "high",
         message: `Oracle update at cmd[${oracleIdx}] followed by DeFi action at cmd[${defiIdx}]`,
         evidence: {
-          oracleCmd: trace.ptbCommands[oracleIdx],
-          defiCmd: trace.ptbCommands[defiIdx],
+          oracleCmd: cmds[oracleIdx],
+          defiCmd: cmds[defiIdx],
+          oracleIndex: oracleIdx,
+          defiIndex: defiIdx,
         },
       });
     }

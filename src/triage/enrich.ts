@@ -4,16 +4,15 @@ import { findBenignMatch } from "./benign.js";
 import { loadHistory, countSignature } from "./history.js";
 
 export async function enrich(report: AnalysisReport): Promise<EnrichedViolation[]> {
-  const history = loadHistory();
+  const history = loadHistory(report.network);
   const enriched: EnrichedViolation[] = [];
 
   for (const violation of report.violations) {
-    const corroborating = report.violations.filter(
-      (v) =>
-        v !== violation &&
-        v.type !== violation.type &&
-        !isExpectedOverlap(violation.type, v.type)
-    );
+    // Corroboration means independent detectors agreeing, not volume. Two rows from the same
+    // detector (e.g. one ADDRESS_OUTFLOW per coin moved) are one opinion, so the list is
+    // collapsed to one representative per distinct violation type. Scoring must never be able
+    // to escalate a finding because a single noisy detector emitted a lot of rows.
+    const corroborating = distinctDetectors(report.violations, violation);
 
     const benignMatch = findBenignMatch(violation);
     const historyCount = countSignature(history, violation);
@@ -32,6 +31,22 @@ export async function enrich(report: AnalysisReport): Promise<EnrichedViolation[
   }
 
   return enriched;
+}
+
+function distinctDetectors(
+  all: readonly Violation[],
+  subject: Violation
+): Violation[] {
+  const byType = new Map<string, Violation>();
+
+  for (const v of all) {
+    if (v === subject) continue;
+    if (v.type === subject.type) continue;
+    if (isExpectedOverlap(subject.type, v.type)) continue;
+    if (!byType.has(v.type)) byType.set(v.type, v);
+  }
+
+  return [...byType.values()];
 }
 
 function isExpectedOverlap(a: string, b: string): boolean {

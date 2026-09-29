@@ -14,8 +14,12 @@ const SYSTEM_MODULES = new Set([
   "0x0000000000000000000000000000000000000000000000000000000000000002::dynamic_object_field",
 ]);
 
-// Modules called repeatedly as part of normal aggregated swap routing.
-// Add packages here as they show up in watch output.
+// Aggregator/router packages that call the same module repeatedly as part of normal multi-hop
+// routing. This list is deliberately EMPTY: no package has yet been verified as a router from
+// real watch output, and inventing package ids would suppress findings nobody has checked.
+// Consequence: no router suppression happens today — the only excluded modules are the
+// SYSTEM_MODULES above, and the detector description says exactly that. Add entries from observed
+// routing in `chase watch` output, not from guesses.
 const KNOWN_ROUTERS = new Set<string>([
   // leave empty for now — populate from watch findings
 ]);
@@ -24,7 +28,7 @@ const THRESHOLD = 5;
 
 export const repeatedModuleCalls: InvariantChecker = {
   name: "repeated-module-calls",
-  description: `Flags PTBs that call into the same non-system, non-router module ${THRESHOLD}+ times`,
+  description: `Flags PTBs that call into the same non-system module ${THRESHOLD}+ times`,
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const counts = new Map<string, number>();
