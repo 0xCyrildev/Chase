@@ -234,6 +234,66 @@ check("package.json and the lockfile version agree", lockRoot.version === pkg.ve
 check("version.ts reads the same value the manifest declares", (await import("../src/lib/version.js")).VERSION === pkg.version);
 check("the package is scoped to the npm username, not the GitHub handle", pkg.name.startsWith("@zeroxcyril/"), pkg.name);
 
+console.log("\nexplicit transaction list — the escalation path, offline");
+
+// The first version of this feature passed every eyeball test and did nothing: `--txs` parsed, the
+// target label read "explicit:7 tx(s)", and the scout then swept checkpoints anyway because the
+// parsed list was never put back into the mandate. A silently ignored flag is worse than a missing
+// one, so each of these asserts on the value the scout actually receives.
+const P0_TX = "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg";
+const P1_TX = "AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV";
+const txsFile = path.join(os.tmpdir(), `chase-txs-${process.pid}.txt`);
+fs.writeFileSync(txsFile, `# synthetic testnet positive controls\n${P0_TX}\n${P1_TX}\n`);
+
+const mTxs = mandateFromArgs({ txs: txsFile });
+check("--txs survives into the mandate", mTxs.txs?.length === 2, String(mTxs.txs?.length));
+check("comments and blanks are stripped from a digest file", (mTxs.txs ?? []).every((d) => d.length > 40));
+check("a named list labels its own target", /^explicit:2 tx/.test(mTxs.target), mTxs.target);
+check("a junk line is rejected rather than quietly skipped", (() => {
+  const badFile = path.join(os.tmpdir(), `chase-txs-bad-${process.pid}.txt`);
+  fs.writeFileSync(badFile, `${P0_TX}\nnot-a-digest\n`);
+  try {
+    mandateFromArgs({ txs: badFile });
+    return false;
+  } catch (e: any) {
+    return /invalid digest/i.test(String(e?.message));
+  } finally {
+    fs.rmSync(badFile, { force: true });
+  }
+})());
+
+const escalated = await scout(
+  {
+    target: mTxs.target,
+    checkpoints: 20,
+    goal: "escalation path proof",
+    txs: [P0_TX, P1_TX],
+    budget: { maxRpcCalls: 60, maxLlmCalls: 8, maxLlmTokens: 40000, maxWallMs: 120000 },
+  },
+  new RuleBasedLLM(),
+  { network: "testnet", verbose: false }
+);
+const ef = escalated.findings;
+check("exactly the named transactions were analyzed", escalated.coverage.txsListed === 2 && ef.length === 2,
+  `listed=${escalated.coverage.txsListed} findings=${ef.length}`);
+check("an explicit run claims no checkpoint coverage", escalated.coverage.checkpointsScanned === 0,
+  String(escalated.coverage.checkpointsScanned));
+check("and does not invent a seq range to fill the gap", escalated.coverage.startCheckpoint === null && escalated.coverage.endCheckpoint === null,
+  `${escalated.coverage.startCheckpoint}..${escalated.coverage.endCheckpoint}`);
+check("one pass, then stop", escalated.coverage.passes === 1, String(escalated.coverage.passes));
+check("nothing was left untiered", ef.every((f) => !!f.tier && !f.tierError), ef.map((f) => f.tierError ?? f.tier).join(","));
+check("the P0 escalates", ef.find((f) => f.digest === P0_TX)?.action === "ESCALATE",
+  JSON.stringify(ef.map((f) => [f.tier, f.action])));
+
+const inv = ef.find((f) => f.digest === P0_TX)?.investigation;
+check("THE INVESTIGATOR ACTUALLY RAN", !!inv, "no investigation attached to the P0");
+check("and it reached a verdict, not a shrug", inv?.verdict === "suspicious" && !!inv.hypothesis && inv.hypothesis !== "unclassified",
+  `${inv?.verdict} / ${inv?.hypothesis} / ${inv?.reasoning?.slice(0, 60)}`);
+const inv1 = ef.find((f) => f.digest === P1_TX)?.investigation;
+check("the capability transfer escalated too", !!inv1 && (ef.find((f) => f.digest === P1_TX)?.tier ?? "") !== "NOISE",
+  `${ef.find((f) => f.digest === P1_TX)?.tier} / ${inv1?.verdict}`);
+fs.rmSync(txsFile, { force: true });
+
 console.log("\nbatch output shape");
 
 const digests = path.join(os.tmpdir(), `chase-agent-batch-${process.pid}.txt`);

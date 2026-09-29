@@ -170,6 +170,16 @@ export async function scout(
       );
     }
 
+    if (mandate.txs && mandate.txs.length > 0) {
+      // A named set is not a window. There is no next checkpoint to advance to, and iterating would
+      // either re-ask the same digests or widen into traffic nobody requested.
+      decisions.push({
+        action: "stop",
+        reason: `explicit list of ${mandate.txs.length} transaction(s) scanned once`,
+      });
+      break;
+    }
+
     if (budget.nearLimit()) {
       decisions.push({
         action: "stop",
@@ -338,6 +348,24 @@ interface PassResult {
   complete: boolean;
 }
 
+/** A pass that never got to look at anything: no range read, nothing analyzed, nothing claimed. */
+function emptyPass(startCheckpoint: bigint, endCheckpoint: bigint): PassResult {
+  return {
+    results: [],
+    transactions: [],
+    startCheckpoint,
+    endCheckpoint,
+    checkpoints: 0,
+    readRange: false,
+    txsAnalyzed: 0,
+    txsSkipped: 0,
+    txsTargetMissed: 0,
+    txsCarried: 0,
+    txsErrored: 0,
+    complete: false,
+  };
+}
+
 async function runScanPass(
   filter: string,
   mandate: Mandate,
@@ -348,76 +376,74 @@ async function runScanPass(
   triageEnabled: boolean
 ): Promise<PassResult> {
   const fetcher = new TraceFetcher(network, true);
+  const explicit = !!mandate.txs && mandate.txs.length > 0;
 
-  let current: bigint;
-  try {
-    ({ current } = await fetcher.getCheckpointHeight());
-    budget.spendRpc();
-  } catch (err: any) {
-    const code = err?.code ? `[${err.code}] ` : "";
-    console.error(
-      `[scout] checkpoint height lookup failed: ${code}${err?.message || err?.name || "unknown error"}`
-    );
-    return {
-      results: [],
-      transactions: [],
+  let listed: ListedTransactions;
+
+  if (explicit) {
+    // The caller already chose these transactions: no height lookup, no listing, and no target
+    // matching. Re-filtering an explicit list by package would drop the very digests someone asked
+    // about, and a filtered-away digest reads as "analyzed, nothing found" — the exact failure mode
+    // this codebase keeps having to root out.
+    listed = {
+      transactions: mandate.txs!.map((digest) => ({ digest, checkpoint: null })),
       startCheckpoint: 0n,
       endCheckpoint: 0n,
       checkpoints: 0,
-      readRange: false,
-      txsAnalyzed: 0,
-      txsSkipped: 0,
-      txsTargetMissed: 0,
-      txsCarried: 0,
-      txsErrored: 0,
-      complete: false,
+      complete: true,
+      endReason: null,
     };
+    if (verbose) {
+      console.error(
+        `[scout] explicit digest list: ${listed.transactions.length} transaction(s), no checkpoint sweep`
+      );
+    }
+  } else {
+    let current: bigint;
+    try {
+      ({ current } = await fetcher.getCheckpointHeight());
+      budget.spendRpc();
+    } catch (err: any) {
+      const code = err?.code ? `[${err.code}] ` : "";
+      console.error(
+        `[scout] checkpoint height lookup failed: ${code}${err?.message || err?.name || "unknown error"}`
+      );
+      return emptyPass(0n, 0n);
+    }
+
+    const endCheckpoint = current - 2n;
+    const startCheckpoint = endCheckpoint - (BigInt(mandate.checkpoints) - 1n);
+
+    try {
+      listed = await fetcher.listTransactions({
+        startCheckpoint,
+        endCheckpoint,
+      });
+      budget.spendRpc();
+    } catch (err: any) {
+      const code = err?.code ? `[${err.code}] ` : "";
+      console.error(
+        `[scout] transaction listing failed: ${code}${err?.message || err?.name || "unknown error"}`
+      );
+      return emptyPass(startCheckpoint, endCheckpoint);
+    }
   }
 
-  const endCheckpoint = current - 2n;
-  const startCheckpoint = endCheckpoint - (BigInt(mandate.checkpoints) - 1n);
+  const endCheckpoint = listed.endCheckpoint;
   // The gRPC moveCall filter is not used to scope a target. Measured 2026-09-29: over one
   // 2,000-checkpoint mainnet range, `0x2` package-only returned rows while `0x2::transfer` and
   // `0x2::accumulator_settlement` returned none with complete=true — the latter had just been
   // watched being called eight times in one PTB — and Cetus's package id returned none at all.
   // A filter that answers "nothing called this" about a busy protocol is worse than no filter,
   // so the range is listed unfiltered and matched against each transaction's own trace.
-  const parsedTarget = parseTarget(filter);
+  const parsedTarget = explicit ? null : parseTarget(filter);
 
-  if (verbose) {
+  if (!explicit && verbose) {
     console.error(
-      `[scout] listing seq ${startCheckpoint}..${endCheckpoint} (all transactions${
+      `[scout] listing seq ${listed.startCheckpoint}..${endCheckpoint} (all transactions${
         parsedTarget ? `, matching target ${filter}` : ""
       })`
     );
-  }
-
-  let listed: ListedTransactions;
-  try {
-    listed = await fetcher.listTransactions({
-      startCheckpoint,
-      endCheckpoint,
-    });
-    budget.spendRpc();
-  } catch (err: any) {
-    const code = err?.code ? `[${err.code}] ` : "";
-    console.error(
-      `[scout] transaction listing failed: ${code}${err?.message || err?.name || "unknown error"}`
-    );
-    return {
-      results: [],
-      transactions: [],
-      startCheckpoint,
-      endCheckpoint,
-      checkpoints: 0,
-      readRange: false,
-      txsAnalyzed: 0,
-      txsSkipped: 0,
-      txsTargetMissed: 0,
-      txsCarried: 0,
-      txsErrored: 0,
-      complete: false,
-    };
   }
 
   const results: ScanResult[] = [];
@@ -485,7 +511,8 @@ async function runScanPass(
       if (!chargeOrStop()) break;
 
       // A free-text target can only be matched after analysis, against the violation evidence.
-      if (!parsedTarget) {
+      // Explicit runs are already the list the caller wanted; filtering them would hide digests.
+      if (!explicit && !parsedTarget) {
         const touchesTarget = report.violations.some((v) =>
           JSON.stringify(v.evidence ?? {}).includes(filter)
         );
@@ -497,7 +524,8 @@ async function runScanPass(
 
       if (report.violations.length > 0) {
         results.push({
-          checkpoint: tx.checkpoint?.toString() ?? endCheckpoint.toString(),
+          checkpoint:
+            tx.checkpoint?.toString() ?? (explicit ? "explicit-list" : endCheckpoint.toString()),
           digest: tx.digest,
           violations: report.violations.map((v) => ({
             type: v.type,
@@ -543,7 +571,9 @@ async function runScanPass(
     startCheckpoint: listed.startCheckpoint,
     endCheckpoint: listed.endCheckpoint,
     checkpoints: listed.checkpoints,
-    readRange: true,
+    // An explicit list read no checkpoint range, so it must not seed the seq span with 0..0 —
+    // "seq 0-0 (1 wide)" is a fabricated range, and fabricated ranges are how coverage lies.
+    readRange: !explicit,
     txsAnalyzed,
     txsSkipped,
     txsTargetMissed,

@@ -25,6 +25,10 @@ export function registerHunt(cmd: Command): Command {
     .description("Agentic scanner — run the budget-bounded scout over a mandate")
     .option("--mandate <file>", "Load a mandate JSON file")
     .option("--target <target>", "Package ID or name to monitor")
+    .option(
+      "--txs <file>",
+      "Analyze exactly the digests listed in this file (one per line, # comments) instead of sweeping checkpoints"
+    )
     .option("--checkpoints <n>", "Checkpoints covered per scan pass", "20")
     .option("--goal <goal>", "What the scout is looking for", "detect suspicious activity")
     .option("--budget-rpc <n>", "Max RPC calls", "200")
@@ -134,7 +138,13 @@ function printHumanReport(report: any, mode: string): void {
   console.log(`Target:   ${report.mandate.target}`);
   console.log(`Goal:     ${report.mandate.goal}`);
   console.log(`Mode:     ${mode}`);
-  console.log(`Scope:    ${report.mandate.checkpoints} checkpoints/pass x ${c.passes} passes`);
+  console.log(
+    `Scope:    ${
+      report.mandate.txs?.length
+        ? `${report.mandate.txs.length} explicit transaction(s), 1 pass (no checkpoint sweep)`
+        : `${report.mandate.checkpoints} checkpoints/pass x ${c.passes} passes`
+    }`
+  );
   console.log(
     `Covered:  seq ${c.startCheckpoint ?? "n/a"}-${c.endCheckpoint ?? "n/a"} (${span ?? 0} wide) | ` +
       `${c.txsListed} listed | ${c.txsAnalyzed} analyzed | ${c.txsTargetMissed} no target call | ` +
@@ -160,6 +170,12 @@ function printHumanReport(report: any, mode: string): void {
       console.log(`  ${f.digest}${tier}${action}`);
       if (f.tierError) console.log(`      ! ${f.tierError}`);
       if (f.investigationError) console.log(`      ! ${f.investigationError}`);
+      // The verdict was being printed for markdown only, so the escalation most people actually
+      // look at was invisible in the terminal.
+      if (f.investigation) {
+        console.log(`      investigator: ${f.investigation.verdict} — ${f.investigation.hypothesis}`);
+        if (f.investigation.reasoning) console.log(`        ${f.investigation.reasoning}`);
+      }
       for (const v of f.violations ?? []) {
         console.log(`      ${v.severity.toUpperCase()} ${v.type} — ${v.message}`);
       }

@@ -482,8 +482,9 @@ npm run hunt -- --mandate mandates/synthetic-testnet.json --dry-run
 npm run hunt -- --mandate mandates/cetus-mainnet.json --mode real --md -o reports/hunt.md
 ```
 
-A mandate is `{target, checkpoints, goal, budget}` with
-`budget: {maxRpcCalls, maxLlmCalls, maxLlmTokens, maxWallMs}`. The budget is
+A mandate is `{target, checkpoints, goal, budget}` — optionally with `txs`, an
+explicit digest list — and `budget: {maxRpcCalls, maxLlmCalls, maxLlmTokens,
+maxWallMs, reserveForJudge?}`. The budget is
 enforced, not advisory: exceeding any limit raises `BudgetExceeded` and the
 run stops with exit code `3`.
 
@@ -504,6 +505,45 @@ letting a thin sample read as a clean bill of health:
 ```
 No violations in the 2 transaction(s) that reached 0x1eabed…; 52 inspected did not involve it.
 ```
+
+### Pointing the scout at known transactions
+
+`--txs <file>` (or `txs` in a mandate) analyzes exactly the listed digests:
+one pass, no checkpoint sweep, and deliberately no target match — re-filtering a
+list the caller already chose would drop the very transactions they asked
+about, and a dropped digest reads as "analyzed, nothing found". This is the
+path for "look at these eight transactions", and the only way to drive the
+escalation branch deterministically.
+
+```bash
+chase hunt --txs digests.txt --network testnet     # one digest per line, # for comments
+```
+
+Real output from seven synthetic positive controls, verbatim except where
+marked. Note that the coverage line claims no range it did not read, and that
+P3 is left uninvestigated on purpose:
+
+```
+Scope:    7 explicit transaction(s), 1 pass (no checkpoint sweep)
+Covered:  seq n/a-n/a (0 wide) | 7 listed | 7 analyzed | 0 no target call | 0 system | 0 repeat
+Coverage: complete — every named transaction reached (no checkpoint sweep was performed)
+Findings: 7
+  9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg [P0] -> ESCALATE
+      investigator: suspicious — high-confidence pattern
+        Triage assigned tier P0. Multiple high-confidence signals or a critical severity violation.
+      HIGH MUTABLE_REFERENCE_RETURNED — 0x1017…::leak::leak_mut returns a mutable reference to the calling transaction; no other non-framework package is invoked in this PTB
+  AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV [P1] -> MANUAL_REVIEW
+      investigator: suspicious — high-severity pattern
+      HIGH CAPABILITY_TRANSFER — TreasuryCap transferred to 0x0000000000…
+  7Y3T5H7oXRhG1vjhnAERiseYW6tY4XndAfHSrrbVwKT2 [P2] -> MANUAL_REVIEW
+      investigator: suspicious — high-severity pattern
+  GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd [P3] -> MANUAL_REVIEW
+      MEDIUM REENTRANCY_PATTERN — hop::first re-entered at cmd[2] after call to hop::second
+  … (3 further findings at P3/NOISE, elided)
+```
+
+The escalation threshold is P0–P2. A report that investigated everything would
+say nothing about which findings it thought mattered.
 
 `--mode` picks the decision layer and defaults to `rules`, so a hunt is
 reproducible with no API key and no spend. `--mode real` asks the configured

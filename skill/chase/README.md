@@ -83,9 +83,10 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
 
 ## Proof it works
 
-- `npm test` → four suites: 9 invariant fixtures + 10 triage checks + 44 regression checks
-  (target matching, budgets, corroboration independence, investigator, batch contract, CLI validation,
-  dry-run coverage) + budget unit checks — all **offline** against committed traces
+- `npm test` → four suites: 9 invariant fixtures + 10 triage checks + 61 regression checks
+  (target matching, budgets, corroboration independence, the scan→triage→escalate chain including the
+  investigator's verdict, batch contract, CLI validation, dry-run coverage) + budget unit checks — all
+  **offline** against committed traces
 - All eight detectors have positive controls: synthetic Move packages published to testnet that fire each
   detector on demand (the Move package ships in the Chase repo under `test-cases/synthetic-leak/`)
 - `npm run mcp:selftest:live` → 18 checks against live mainnet, including a positive control that a

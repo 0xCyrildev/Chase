@@ -89,9 +89,34 @@ Budget:   109 RPC, 3 LLM, 103126ms  (reserve held 20 back; verdicts arrived tier
 ```
 
 The scout reached its target, triaged what it found, and **dismissed** it. `investigator.ts` correctly
-did not run — nothing reached P0–P2. The escalation branch therefore remains unexercised on live
-traffic: with 339 real transactions inspected today, this codebase has produced no P0 or P1, and
-claiming otherwise would be exactly the overreach the docs warn about.
+did not run — nothing reached P0–P2.
+
+**Follow-up, same evening:** the escalation branch has since been exercised end to end. It could not be
+reached on organic traffic (nothing in 308 live transactions rose to P0–P2, which is the correct base
+rate), so the scout gained `--txs`, an explicit digest list that skips the checkpoint sweep and the
+target filter entirely. Over the seven synthetic positive controls it now produces:
+
+```
+Scope:    7 explicit transaction(s), 1 pass (no checkpoint sweep)
+Coverage: complete — every named transaction reached (no checkpoint sweep was performed)
+Findings: 7
+  9gwFpqxG… [P0] -> ESCALATE      investigator: suspicious — high-confidence pattern
+  AyBucbog… [P1] -> MANUAL_REVIEW investigator: suspicious — high-severity pattern
+  7Y3T5H7o… [P2] -> MANUAL_REVIEW investigator: suspicious — high-severity pattern
+  GoZD6MFD… [P3] -> MANUAL_REVIEW   (deliberately not investigated)
+```
+
+What remains genuinely unproven is narrower and should be stated precisely: the investigator has run on
+**synthetic** P0–P2 findings, not on an organic one. On real mainnet traffic the pipeline has so far
+produced only LOW/MEDIUM/NOISE, and the first honest interpretation of that is that ordinary Sui
+activity is mostly ordinary.
+
+Two implementation notes from the same work, because both are the kind of bug that survives a demo:
+the first `--txs` implementation parsed the file and then dropped the list on the way out, so the flag
+was silently ignored while the report claimed `Scope: 7 explicit transaction(s)` — caught only by
+running it and reading the coverage line, not by reading the code. And an explicit pass initially
+seeded the coverage span with `seq 0-0 (1 wide)`, a fabricated range for a run that read no range.
+Both are now asserted against in `scripts/agent-tests.ts` (14 checks in "explicit transaction list").
 
 ## MCP over stdio, from the published package
 

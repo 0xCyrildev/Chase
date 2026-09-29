@@ -87,7 +87,7 @@ Cursor / VS Code (`.cursor/mcp.json`, or VS Code's MCP config) — same stdio se
 | `chase_triage` | `digests[]`, `network`, `explain`, `minTier` | findings with `tier`, `score`, `nextAction`, `rationale`, caveats, and `skipped[]` for digests that could not be analyzed |
 | `chase_list` | `startCheckpoint`, `endCheckpoint`, `network`, `limit`, optional `target` + `inspect` | digests in range, plus — when `target` and `inspect` are given — which inspected transactions actually involved that package, and a `presenceClaim` |
 | `chase_watch` | `from`, `to`, `network`, optional `filter` | findings in a bounded checkpoint range, with coverage counts |
-| `chase_hunt` | `target`, `checkpoints`, `goal`, `mode`, budget (`maxRpcCalls`, `maxLlmCalls`, `maxLlmTokens`, `maxWallMs`, optional `reserveForJudge`) | the scout's report: decisions, findings with tiers, coverage, budget used |
+| `chase_hunt` | `target` **or** `txs` (explicit digest list), `checkpoints`, `goal`, `mode`, budget (`maxRpcCalls`, `maxLlmCalls`, `maxLlmTokens`, `maxWallMs`, optional `reserveForJudge`) | the scout's report: decisions, findings with tiers, investigator verdicts on P0–P2, coverage, budget used |
 | `chase_query` | — | signature cache size and cache directory |
 
 ## How to run an agent workflow
@@ -102,6 +102,11 @@ Cursor / VS Code (`.cursor/mcp.json`, or VS Code's MCP config) — same stdio se
 5. **For continuous monitoring**, `chase_hunt` with a mandate and a budget. Prefer several narrow hunts
    over one wide one: a listing returns at most 500 transactions per call and reports
    `complete=false` when it stops early, so a wide range is sampled at its head.
+6. **When specific transactions are already in question**, pass `txs` instead of a target: the scout
+   analyzes exactly those digests in one pass, with no checkpoint sweep and no target filter. Use this
+   rather than a wide hunt when someone hands you digests — a sweep over a window is not the same claim
+   as "I looked at these", and the report distinguishes the two (`Scope: N explicit transaction(s), 1
+   pass`, `Covered: seq n/a-n/a (0 wide)`).
 
 ## Reading the output honestly
 

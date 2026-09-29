@@ -27,6 +27,9 @@ export function coverageCaveat(c: ScanCoverage): string {
   if (unreached > 0) problems.push(`${unreached} of ${c.txsListed} listed txs not reached`);
 
   if (problems.length === 0) {
+    if (c.checkpointsScanned === 0) {
+      return "complete — every named transaction reached (no checkpoint sweep was performed)";
+    }
     return "complete — every listed transaction reached, to the checkpoint bound";
   }
   return `INCOMPLETE — ${problems.join("; ")}`;
@@ -40,7 +43,11 @@ export function toMarkdown(report: AgentReport): string {
   lines.push(`**Target:** \`${report.mandate.target}\``);
   lines.push(`**Goal:** ${report.mandate.goal}`);
   const c = report.coverage;
-  lines.push(`**Scope:** ${report.mandate.checkpoints} checkpoints per pass × ${c.passes} passes`);
+  lines.push(
+    report.mandate.txs?.length
+      ? `**Scope:** ${report.mandate.txs.length} named transaction(s), 1 pass (no checkpoint sweep)`
+      : `**Scope:** ${report.mandate.checkpoints} checkpoints per pass × ${c.passes} passes`
+  );
   const span = coverageSpan(c);
   const counted = [`${c.txsListed} txs listed`, `${c.txsAnalyzed} analyzed`];
   if (c.txsTargetMissed > 0) counted.push(`${c.txsTargetMissed} did not call the target`);
@@ -94,7 +101,9 @@ export function toMarkdown(report: AgentReport): string {
       if (f.tierError) lines.push(`- **Triage problem:** ${f.tierError}`);
       if (f.investigationError) lines.push(`- **Investigation problem:** ${f.investigationError}`);
       if (f.investigation) {
-        lines.push(`- **Investigator:** ${f.investigation.verdict}`);
+        lines.push(
+          `- **Investigator:** ${f.investigation.verdict} — ${f.investigation.hypothesis}`
+        );
         if (f.investigation.reasoning) {
           lines.push(`  - ${f.investigation.reasoning}`);
         }

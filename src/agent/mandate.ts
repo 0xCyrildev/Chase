@@ -14,9 +14,11 @@ export function readDigestList(file: string, label = "--txs"): string[] {
     .map((l) => l.trim())
     .filter((l) => l.length > 0 && !l.startsWith("#"));
   if (lines.length === 0) throw new Error(`${label} file holds no digests: ${file}`);
-  const bad = lines.filter((l) => !isDigest(l));
+  // isDigest is a type guard, so the negative branch narrows to never[]; String() keeps the message
+  // buildable without weakening the check.
+  const bad: string[] = lines.filter((l) => !isDigest(l));
   if (bad.length > 0) {
-    throw new Error(`${label} file contains ${bad.length} invalid digest(s), e.g. ${bad[0].slice(0, 60)}`);
+    throw new Error(`${label} file contains ${bad.length} invalid digest(s), e.g. ${String(bad[0]).slice(0, 60)}`);
   }
   return lines;
 }
@@ -150,5 +152,5 @@ export function mandateFromArgs(args: Record<string, string | undefined>): Manda
     reserveForJudge: optionalNonNegativeInt(args.reserveJudge, "--reserve-judge"),
   };
 
-  return validateMandate({ target, checkpoints, goal, budget });
+  return validateMandate({ target, checkpoints, goal, budget, txs });
 }
