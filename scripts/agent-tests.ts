@@ -194,6 +194,36 @@ check("dry-run coverage does not report 'complete'", !/^complete/.test(coverageC
 check("dry-run coverage names the reason", /NO SCAN RAN/.test(coverageCaveat(dry.coverage)), coverageCaveat(dry.coverage));
 check("dry-run summary refuses to read as a result", /NOTHING SCANNED/.test(dry.summary), dry.summary.slice(-90));
 
+console.log("\ncorroboration independence (found in live traffic, 308 txs)");
+
+// Measured: the only two transactions that reached P2 were Cetus flash swaps. FLASH_LOAN_SHAPED,
+// REPEATED_MODULE_CALLS and REENTRANCY_PATTERN all fired because they describe one construct — a
+// borrow/action/repay that calls the same pool module several times in sequence — so the score read
+// "3 independent detectors agree" when one shape was counted three times.
+const { enrich } = await import("../src/triage/enrich.js");
+const flashSwapReport: any = {
+  digest: "f", network: "mainnet", timestamp: "", sender: "0x1", success: true, detectorErrors: [],
+  stats: { balanceChanges: 1, objectChanges: 1, ptbCommands: 22, events: 0 },
+  violations: [
+    { type: "FLASH_LOAN_SHAPED", severity: "medium", message: "borrow/action/repay", evidence: { package: PKG } },
+    { type: "REPEATED_MODULE_CALLS", severity: "low", message: "pool called 8 times", evidence: { package: PKG } },
+    { type: "REENTRANCY_PATTERN", severity: "medium", message: "flash_swap re-entered", evidence: { package: PKG } },
+    { type: "CAPABILITY_TRANSFER", severity: "high", message: "cap moved", evidence: { package: PKG } },
+  ],
+};
+const enrichedFlash = await enrich(flashSwapReport);
+const byType = new Map(enrichedFlash.map((e) => [e.violation.type, e.corroborating.map((c) => c.type)]));
+const CLUSTER = new Set(["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS", "REENTRANCY_PATTERN"]);
+const leaked = (t: string) => (byType.get(t) ?? []).filter((x) => CLUSTER.has(x));
+
+check("flash-swap shape is not corroborated by its own symptoms", leaked("FLASH_LOAN_SHAPED").length === 0, leaked("FLASH_LOAN_SHAPED").join(","));
+check("reentrancy is not corroborated by repeated calls of the same call", leaked("REENTRANCY_PATTERN").length === 0, leaked("REENTRANCY_PATTERN").join(","));
+check("repeated calls are not corroborated by the flash shape", leaked("REPEATED_MODULE_CALLS").length === 0, leaked("REPEATED_MODULE_CALLS").join(","));
+check("an orthogonal detector still corroborates all three", [...CLUSTER].every((t) => (byType.get(t) ?? []).includes("CAPABILITY_TRANSFER")),
+  [...CLUSTER].map((t) => `${t}=[${(byType.get(t) ?? []).join("|")}]`).join(" "));
+check("the orthogonal finding keeps the cluster in its own corroboration", (byType.get("CAPABILITY_TRANSFER") ?? []).length === 3,
+  (byType.get("CAPABILITY_TRANSFER") ?? []).join(","));
+
 console.log("\nbatch output shape");
 
 const digests = path.join(os.tmpdir(), `chase-agent-batch-${process.pid}.txt`);

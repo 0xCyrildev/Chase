@@ -402,6 +402,15 @@ Each finding gets a priority score from 0 to 100, computed deterministically:
 priority = base_severity + corroboration - benign_penalty - novelty_penalty + confidence_modifier
 ```
 
+Corroboration counts **independent** detectors only. A flash swap is
+`borrow → action → repay`, calls one pool module repeatedly, and reads as re-entry at its own
+entry/exit — so `FLASH_LOAN_SHAPED`, `REPEATED_MODULE_CALLS` and `REENTRANCY_PATTERN` are three names
+for one construct, and `enrich.ts` treats them as an expected overlap rather than letting them boost
+each other. That rule came out of a live run, not a hunch: over 308 mainnet transactions the only two
+findings that reached P2 were Cetus flash swaps scoring "+25 corroboration (3 independent detectors)",
+and on the same traffic the fix moved them to P3 (top score 50 → 35) without hiding anything — see
+`reports/field-test-2026-09-29.md`.
+
 Weights are in `src/triage/triage.config.json`. The confidence modifier per
 invariant reflects how reliable the invariant is:
 

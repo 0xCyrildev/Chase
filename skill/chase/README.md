@@ -83,12 +83,19 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
 
 ## Proof it works
 
-- `npm test` → 9 invariant fixtures + 10 triage checks, run **offline** against committed traces
+- `npm test` → four suites: 9 invariant fixtures + 10 triage checks + 44 regression checks
+  (target matching, budgets, corroboration independence, investigator, batch contract, CLI validation,
+  dry-run coverage) + budget unit checks — all **offline** against committed traces
 - All eight detectors have positive controls: synthetic Move packages published to testnet that fire each
   detector on demand (the Move package ships in the Chase repo under `test-cases/synthetic-leak/`)
 - `npm run mcp:selftest:live` → 18 checks against live mainnet, including a positive control that a
   target is actually found in real transactions
-- CI on every push: typecheck plus both fixture suites
+- **Field-tested on live mainnet:** 308 transactions analyzed uncached at 7.4 tx/s with zero fetch or
+  detector errors; 8.1% flagged; triage over the flagged set produced 0 false P0/P1 and 24 dismissals,
+  and the run found a real scoring flaw (a flash swap counted as "3 independent detectors agreeing")
+  which was fixed and re-measured on the same traffic — 8 P2 → 0, top score 50 → 35, nothing hidden.
+  See `reports/field-test-2026-09-29.md` in the repo
+- CI on every push: typecheck plus all four suites
 
 ## Read this before trusting it
 

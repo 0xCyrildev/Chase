@@ -49,10 +49,30 @@ function distinctDetectors(
   return [...byType.values()];
 }
 
+/**
+ * Corroboration means independent detectors agreeing. These pairs describe the *same underlying
+ * construct*, so agreement between them is one opinion counted twice:
+ *
+ * - A flash swap is `borrow → action → repay` (FLASH_LOAN_SHAPED), it calls one pool module
+ *   repeatedly (REPEATED_MODULE_CALLS), and its own sequential entry/exit looks like re-entry
+ *   (REENTRANCY_PATTERN). Measured on 308 live mainnet transactions, the only two findings that
+ *   reached P2 were Cetus flash swaps scoring +25 corroboration from exactly this trio — 8 P2s from
+ *   2 transactions, none of it independent.
+ * - TreasuryCap transfers legitimately surface as unexpected transfers (the pre-existing pair).
+ * - Address outflow on a shared-object swap is the same balance-scoping artifact as a composition
+ *   pattern in the same PTB (the pre-existing pair).
+ *
+ * A real flash-loan exploit still stands on FLASH_LOAN_SHAPED alone (base 30, −5 name-based → P3)
+ * and keeps any genuinely orthogonal signal: CAPABILITY_TRANSFER, MUTABLE_REFERENCE_RETURNED,
+ * ORACLE_MANIPULATION_SUSPECTED and UNEXPECTED_TRANSFER are not in this list.
+ */
 function isExpectedOverlap(a: string, b: string): boolean {
   const pairs: [string, string][] = [
     ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
     ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
+    ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
+    ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
+    ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],
   ];
   return pairs.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
 }
