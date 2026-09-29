@@ -7,7 +7,7 @@ import {
   ListedTransactions,
 } from "../lib/fetcher.js";
 import { runAnalysis } from "../commands/analyze.js";
-import { SuiTransactionTrace } from "../lib/types.js";
+import { parseTarget, traceTouchesTarget } from "../lib/target.js";
 import { triage } from "../triage/index.js";
 import { investigate, InvestigationResult } from "./investigator.js";
 
@@ -372,13 +372,13 @@ async function runScanPass(
   // `0x2::accumulator_settlement` returned none with complete=true — the latter had just been
   // watched being called eight times in one PTB — and Cetus's package id returned none at all.
   // A filter that answers "nothing called this" about a busy protocol is worse than no filter,
-  // so the range is listed unfiltered and matched against the resolved MoveCalls below.
-  const targetAddress = normalizeAddress(filter);
+  // so the range is listed unfiltered and matched against each transaction's own trace.
+  const parsedTarget = parseTarget(filter);
 
   if (verbose) {
     console.error(
       `[scout] listing seq ${startCheckpoint}..${endCheckpoint} (all transactions${
-        targetAddress ? `, matching target ${targetAddress}` : ""
+        parsedTarget ? `, matching target ${filter}` : ""
       })`
     );
   }
@@ -449,11 +449,13 @@ async function runScanPass(
     seen.add(tx.digest);
 
     try {
-      if (targetAddress) {
+      if (parsedTarget) {
         // Match on the target appearing anywhere in the transaction's own trace, not on whether a
         // detector fired: a transaction that touched the target and stayed clean is still evidence.
         const trace = await fetcher.fetch(tx.digest);
-        if (!traceTouchesTarget(trace, targetAddress)) {
+        if (
+          !traceTouchesTarget(trace, parsedTarget.address, parsedTarget.scope)
+        ) {
           txsTargetMissed++;
           if (!chargeOrStop()) break;
           continue;
@@ -465,7 +467,7 @@ async function runScanPass(
       if (!chargeOrStop()) break;
 
       // A free-text target can only be matched after analysis, against the violation evidence.
-      if (!targetAddress) {
+      if (!parsedTarget) {
         const touchesTarget = report.violations.some((v) =>
           JSON.stringify(v.evidence ?? {}).includes(filter)
         );
@@ -531,38 +533,4 @@ async function runScanPass(
     txsErrored,
     complete: listed.complete,
   };
-}
-
-/**
- * Sui accepts short addresses, so both sides of a target comparison need the canonical 64-hex form.
- * Returns null for free text, which is matched against violation evidence after analysis instead.
- */
-function normalizeAddress(target: string): string | null {
-  const m = /^0x([0-9a-fA-F]{1,64})$/.exec(target.trim());
-  if (!m) return null;
-  return `0x${m[1].toLowerCase().padStart(64, "0")}`;
-}
-
-/**
- * Sui reports a package two ways: calls and events carry the *updated* id, while type strings keep
- * the *original* one, and routed volume never names the protocol in a top-level call at all. So a
- * target is compared against every address-shaped position the trace offers.
- */
-function traceTouchesTarget(trace: SuiTransactionTrace, target: string): boolean {
-  for (const cmd of trace.ptbCommands ?? []) {
-    if (normalizeAddress(cmd.packageId ?? "") === target) return true;
-  }
-  for (const ev of trace.events ?? []) {
-    if (moveTypePackage(ev.type) === target) return true;
-  }
-  for (const obj of trace.objectChanges ?? []) {
-    if (moveTypePackage(obj.objectType) === target) return true;
-  }
-  return false;
-}
-
-function moveTypePackage(value: string | undefined): string | null {
-  if (typeof value !== "string") return null;
-  const m = /^0x([0-9a-fA-F]{1,64})::/.exec(value.trim());
-  return m ? `0x${m[1].toLowerCase().padStart(64, "0")}` : null;
 }

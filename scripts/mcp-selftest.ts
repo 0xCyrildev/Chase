@@ -97,13 +97,46 @@ if (LIVE) {
   const l2 = await call("chase_list", {
     startCheckpoint: Number(w.parsed?.to ?? 0) - 40,
     endCheckpoint: Number(w.parsed?.to ?? 0),
-    moveCall: bogus,
+    target: bogus,
+    inspect: 5,
+    network: "mainnet",
+    limit: 20,
+  });
+  check(
+    "chase_list still lists the range when a target matches nothing",
+    (l2.parsed?.count ?? 0) > 0,
+    `count=${l2.parsed?.count}`
+  );
+  check(
+    "chase_list reports what it did not inspect instead of implying a clean range",
+    /not inspected|NOT inspected/.test(l2.parsed?.presenceClaim ?? ""),
+    l2.parsed?.presenceClaim
+  );
+
+  const l3 = await call("chase_list", {
+    startCheckpoint: Number(w.parsed?.to ?? 0) - 40,
+    endCheckpoint: Number(w.parsed?.to ?? 0),
+    target: "0x2",
+    inspect: 20,
+    network: "mainnet",
+    limit: 20,
+  });
+  check(
+    "chase_list positive control: 0x2 is present in live transactions",
+    (l3.parsed?.matchedCount ?? 0) > 0,
+    `matched=${l3.parsed?.matchedCount} inspected=${l3.parsed?.inspected}`
+  );
+
+  const l4 = await call("chase_list", {
+    startCheckpoint: Number(w.parsed?.to ?? 0) - 5,
+    endCheckpoint: Number(w.parsed?.to ?? 0),
+    target: "0x2",
     network: "mainnet",
   });
   check(
-    "chase_list filter is genuinely applied (bogus package matches nothing, range still complete)",
-    l2.parsed?.count === 0 && l2.parsed?.complete === true,
-    `count=${l2.parsed?.count} complete=${l2.parsed?.complete}`
+    "chase_list with inspect=0 makes no presence claim",
+    /NOT CHECKED/.test(l4.parsed?.presenceClaim ?? ""),
+    l4.parsed?.presenceClaim
   );
 
   const h = await call("chase_hunt", {

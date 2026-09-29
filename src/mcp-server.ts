@@ -9,6 +9,7 @@ import { TraceFetcher, NonProgrammableTransaction } from "./lib/fetcher.js";
 import { signatureCacheSize } from "./lib/sigcache.js";
 import { cacheDir } from "./lib/cache.js";
 import { isDigest } from "./lib/digest.js";
+import { parseTarget, traceTouchesTarget } from "./lib/target.js";
 import { triage } from "./triage/index.js";
 import { scout } from "./agent/scout.js";
 import { validateMandate } from "./agent/mandate.js";
@@ -278,22 +279,48 @@ server.tool(
 
 server.tool(
   "chase_list",
-  "List transactions in a checkpoint range, optionally filtered SERVER-SIDE by a MoveCall target. One or two RPC calls, no per-transaction fetch, so use this before analyzing anything to learn what is actually in a range. The moveCall argument is a dotted-prefix match: a bare package id matches any call into that package, " +
-    "'pkg::module' narrows to a module, and a full 'pkg::module::function' narrows further. Only top-level PTB commands are indexed, so a package reached solely through another package's internal calls will not appear.",
+  "List transactions in a checkpoint range. Do not use this to prove a protocol is quiet: the gRPC " +
+    "MoveCall listing filter is deliberately not applied, because measured on mainnet it answered " +
+    "'nothing, complete=true' for `0x2::transfer` and for a Cetus package id that 8% of the sampled " +
+    "transactions demonstrably swapped through. Pass `target` with `inspect` > 0 to get a real presence " +
+    "check: chase fetches that many traces and matches the package against each transaction's own calls, " +
+    "event types and object types — routed volume names the router in a top-level call, so this is the " +
+    "only honest way to answer 'was this called here'. The response always reports listed, inspected and " +
+    "uninspected counts; a 0-match result over a partial inspection says nothing about the rest.",
   {
     startCheckpoint: z.number().int().nonnegative().describe("First checkpoint sequence number (inclusive)"),
     endCheckpoint: z.number().int().nonnegative().describe("Last checkpoint sequence number (inclusive); at most 500 wide"),
-    moveCall: z
+    target: z
       .string()
       .optional()
-      .describe("Package id, pkg::module, or pkg::module::function to filter by"),
+      .describe("Package id, or pkg::module / pkg::module::function, to verify presence of"),
+    inspect: z
+      .number()
+      .int()
+      .min(0)
+      .max(100)
+      .default(0)
+      .describe("Traces to fetch for the presence check (0 = listing only, makes no presence claim)"),
     network: z.enum(["mainnet", "testnet", "devnet"]).default("mainnet"),
     limit: z.number().int().min(1).max(500).default(50).describe("Max digests to return"),
   },
-  async ({ startCheckpoint, endCheckpoint, moveCall, network, limit }) => {
+  async ({ startCheckpoint, endCheckpoint, target, inspect, network, limit }) => {
     if (endCheckpoint < startCheckpoint) {
       return {
         content: [{ type: "text", text: "endCheckpoint must be >= startCheckpoint" }],
+        isError: true,
+      };
+    }
+
+    const parsed = target ? parseTarget(target) : null;
+    if (target && !parsed) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: 'target must be an address, optionally qualified: 0x…, 0x…::module, or 0x…::module::function',
+          },
+        ],
         isError: true,
       };
     }
@@ -303,10 +330,26 @@ server.tool(
       const listed = await fetcher.listTransactions({
         startCheckpoint: BigInt(startCheckpoint),
         endCheckpoint: BigInt(endCheckpoint),
-        moveCallFunction: moveCall,
         limit: Math.min(Math.max(limit, 1), 500),
       });
 
+      let inspected = 0;
+      const matched: string[] = [];
+      const inspectN = parsed && inspect > 0 ? Math.min(inspect, listed.transactions.length) : 0;
+
+      for (const t of listed.transactions.slice(0, inspectN)) {
+        try {
+          const trace = await fetcher.fetch(t.digest);
+          inspected++;
+          if (parsed && traceTouchesTarget(trace, parsed.address, parsed.scope)) matched.push(t.digest);
+        } catch {
+          // A system transaction or an unreadable trace is still an inspected transaction: it was
+          // asked, and it did not answer with the target.
+          inspected++;
+        }
+      }
+
+      const uninspected = listed.transactions.length - inspected;
       return {
         content: [
           {
@@ -315,13 +358,28 @@ server.tool(
               {
                 range: [startCheckpoint, endCheckpoint],
                 network,
-                filter: moveCall ?? null,
                 count: listed.transactions.length,
                 complete: listed.complete,
                 endReason: listed.endReason,
                 note: listed.complete
                   ? "range walked to its checkpoint bound"
                   : "truncated before the bound: narrow the range or raise limit",
+                target: target ?? null,
+                inspected,
+                matched,
+                matchedCount: matched.length,
+                uninspected,
+                presenceClaim: !target
+                  ? "no target given — this is a listing, not a claim about any package"
+                  : inspectN === 0
+                    ? "NOT CHECKED: target given with inspect=0, so no presence claim is made"
+                    : matched.length > 0
+                      ? `target present: ${matched.length} of ${inspected} inspected${uninspected > 0 ? `; ${uninspected} more were not inspected` : ""}`
+                      : `no match in ${inspected} inspected${
+                          uninspected > 0
+                            ? `; ${uninspected} transactions were NOT inspected, so absence here is not absence in the range`
+                            : "; the whole listing was inspected"
+                        }`,
                 transactions: listed.transactions.map((t) => ({
                   digest: t.digest,
                   checkpoint: t.checkpoint?.toString() ?? null,
