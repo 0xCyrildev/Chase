@@ -82,13 +82,15 @@ export class RuleBasedLLM implements ScoutLLM {
         `Decision chain: ${decisionChain}.`,
         `Budget used: ${input.usage.rpcCalls} RPC, ${input.usage.llmCalls} LLM calls, ${input.usage.llmTokens} tokens, ${input.usage.elapsedMs}ms.`,
         input.findings.length === 0
-          ? c.txsListed === 0
-            ? "This was an EMPTY SCAN, not a clean one: the range listed no transactions at all."
-            : c.txsAnalyzed === 0
-              ? `EMPTY AGAINST THE TARGET, not a clean scan: ${c.txsListed} transactions in range, none called ${input.mandate.target}.`
-              : c.txsTargetMissed > 0
-                ? `No violations in the ${c.txsAnalyzed} transaction(s) that reached ${input.mandate.target}; ${c.txsTargetMissed} inspected did not involve it.`
-                : "No violations detected within the covered range."
+          ? c.passes === 0
+            ? "NOTHING SCANNED — no pass ran (dry-run, or the budget stopped first); this is not a result about the target."
+            : c.txsListed === 0
+              ? "This was an EMPTY SCAN, not a clean one: the range listed no transactions at all."
+              : c.txsAnalyzed === 0
+                ? `EMPTY AGAINST THE TARGET, not a clean scan: ${c.txsListed} transactions in range, none called ${input.mandate.target}.`
+                : c.txsTargetMissed > 0
+                  ? `No violations in the ${c.txsAnalyzed} transaction(s) that reached ${input.mandate.target}; ${c.txsTargetMissed} inspected did not involve it.`
+                  : "No violations detected within the covered range."
           : "Findings present. Recommend triage on the returned digests.",
       ]
         .filter((line): line is string => line !== null)

@@ -171,6 +171,29 @@ const dead = await investigate(
 );
 check("an unanalyzable digest comes back as needs-review, not benign", dead.verdict === "needs-review", `${dead.verdict} / ${dead.reasoning.slice(0, 60)}`);
 
+console.log("\ndry-run coverage (the published artifact surfaced this one)");
+
+const { scout } = await import("../src/agent/scout.js");
+const { RuleBasedLLM } = await import("../src/agent/rules-llm.js");
+const { coverageCaveat } = await import("../src/agent/report-md.js");
+
+const emptyCov = {
+  passes: 0, startCheckpoint: null, endCheckpoint: null, checkpointsScanned: 0,
+  txsListed: 0, txsAnalyzed: 0, txsSkipped: 0, txsTargetMissed: 0, txsCarried: 0,
+  txsErrored: 0, complete: true, analysisComplete: true,
+};
+check("an empty coverage object is never called a complete sweep", !/complete — every listed transaction reached/.test(coverageCaveat(emptyCov as any)) && /^NO SCAN RAN/.test(coverageCaveat(emptyCov as any)), coverageCaveat(emptyCov as any));
+
+const dry = await scout(
+  { target: PKG, checkpoints: 2, goal: "dry-run honesty", budget: { maxRpcCalls: 4, maxLlmCalls: 3, maxLlmTokens: 5000, maxWallMs: 30000 } },
+  new RuleBasedLLM(),
+  { dryRun: true, network: "mainnet" }
+);
+check("a dry-run completes without touching the chain", dry.usage.rpcCalls === 0, `rpc=${dry.usage.rpcCalls}`);
+check("dry-run coverage does not report 'complete'", !/^complete/.test(coverageCaveat(dry.coverage)), coverageCaveat(dry.coverage));
+check("dry-run coverage names the reason", /NO SCAN RAN/.test(coverageCaveat(dry.coverage)), coverageCaveat(dry.coverage));
+check("dry-run summary refuses to read as a result", /NOTHING SCANNED/.test(dry.summary), dry.summary.slice(-90));
+
 console.log("\nbatch output shape");
 
 const digests = path.join(os.tmpdir(), `chase-agent-batch-${process.pid}.txt`);

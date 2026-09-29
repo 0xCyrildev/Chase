@@ -7,6 +7,13 @@ export function coverageSpan(c: ScanCoverage): number | null {
 }
 
 export function coverageCaveat(c: ScanCoverage): string {
+  // A dry-run, or a budget that stopped before the first pass, produces 0 passes and an empty
+  // coverage object. Calling that "complete — every listed transaction reached" is true only in the
+  // vacuous sense that it listed nothing, and it reads to a reviewer as a clean sweep.
+  if (c.passes === 0) {
+    return "NO SCAN RAN — 0 passes completed (dry-run, or the budget stopped before the first pass); this says nothing about the target";
+  }
+
   const problems: string[] = [];
   if (!c.complete) problems.push("a listing stopped before the checkpoint bound");
   if (c.txsErrored > 0) problems.push(`${c.txsErrored} transactions failed to analyze`);

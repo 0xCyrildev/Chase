@@ -1,6 +1,6 @@
 {
-  "name": "@0xcyrildev/chase",
-  "version": "0.1.0",
+  "name": "@zeroxcyril/chase",
+  "version": "0.1.1",
   "description": "Chase — dynamic analysis for Sui Move transactions. Invariant checks over real execution traces, deterministic triage, and a budget-bounded scout agent. CLI, library and MCP server.",
   "keywords": [
     "sui",
@@ -22,10 +22,10 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "chase": "./dist/index.js",
-    "chase-hunt": "./dist/agent/cli.js",
-    "chase-triage": "./dist/triage/cli.js",
-    "chase-mcp": "./dist/mcp-server.js"
+    "chase": "dist/index.js",
+    "chase-hunt": "dist/agent/cli.js",
+    "chase-triage": "dist/triage/cli.js",
+    "chase-mcp": "dist/mcp-server.js"
   },
   "files": [
     "dist",

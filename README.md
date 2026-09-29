@@ -83,6 +83,21 @@ run by a human, imported into a script, or called directly by an AI agent.
 ## Install
 
 ```bash
+npm install -g @zeroxcyril/chase
+chase analyze <TX_DIGEST>
+```
+
+No global install wanted:
+
+```bash
+npx -y @zeroxcyril/chase analyze <TX_DIGEST>          # default `chase` bin
+npx -y -p @zeroxcyril/chase chase triage <TX_DIGEST>  # any subcommand
+npx -y -p @zeroxcyril/chase chase-mcp                 # the MCP server
+```
+
+For development (source checkout, runs through `tsx`):
+
+```bash
 git clone https://github.com/0xCyrildev/Chase.git
 cd Chase
 npm install
@@ -156,7 +171,7 @@ Exit code is `0` when no violations, `1` when at least one fires, `2` on error.
 ### Library
 
 ```typescript
-import { runAnalysis, triage, scout, allInvariants } from "@0xcyrildev/chase";
+import { runAnalysis, triage, scout, allInvariants } from "@zeroxcyril/chase";
 
 const report = await runAnalysis(digest, false, true);
 console.log(report.violations);
@@ -184,32 +199,33 @@ Chase exposes six tools over the Model Context Protocol:
 Run it:
 
 ```bash
-npm run mcp
+npm run mcp                                  # from a source checkout
+npx -y -p @zeroxcyril/chase chase-mcp        # anywhere
 ```
-
-Or point any MCP client at `npx tsx /path/to/Chase/src/mcp-server.ts`.
 
 **Claude Code:**
 
 ```bash
-claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/src/mcp-server.ts
+claude mcp add --transport stdio --scope user chase -- npx -y -p @zeroxcyril/chase chase-mcp
 claude mcp list
 ```
 
 **Codex CLI:**
 
 ```bash
-codex mcp add chase -- npx tsx /path/to/Chase/src/mcp-server.ts
+codex mcp add chase -- npx -y -p @zeroxcyril/chase chase-mcp
 codex mcp list
 ```
 
 **MCP Inspector:**
 
 ```bash
-npx @modelcontextprotocol/inspector npx tsx src/mcp-server.ts
+npx @modelcontextprotocol/inspector npx -y -p @zeroxcyril/chase chase-mcp
 ```
 
-The server speaks MCP protocol version 2025-06-18 over stdio.
+The server speaks MCP protocol version 2025-06-18 over stdio. From a source
+checkout, substitute `npx tsx src/mcp-server.ts` for the `npx -p` form in any of
+the commands above.
 
 ### As an agent skill
 
@@ -497,11 +513,14 @@ shorter scan, and the run says so when it stops for that reason:
 [scout] stopping pass: 10 rpc left, 10 reserved for 3 finding(s)
 ```
 
-Coverage is reported rather than assumed. Three kinds of "nothing" are kept
-apart: the range held no transactions, the range held transactions but none
-matched the target, or the target was reached and stayed clean. A run that
-matched nothing prints `EMPTY AGAINST THE TARGET, not a clean scan`, because
-absence of findings after an incomplete scan is not evidence of safety.
+Coverage is reported rather than assumed. Four kinds of "nothing" are kept
+apart: no pass ran at all (`NO SCAN RAN` / `NOTHING SCANNED` — a dry-run or an
+exhausted budget is not a result about the target); the range held no
+transactions; the range held transactions but none matched the target
+(`EMPTY AGAINST THE TARGET, not a clean scan`); or the target was reached and
+stayed clean. A `--dry-run` used to print `Coverage: complete` because it had
+listed zero transactions and reached all of them — technically true, and the
+kind of sentence that gets read as a clean sweep.
 
 Target matching is done client-side, against the transaction's own trace —
 call package, event type prefix, and object type prefix. The gRPC `moveCall`
