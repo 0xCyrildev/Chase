@@ -132,16 +132,10 @@ function printHumanReport(report: any, mode: string): void {
   console.log(`Scope:    ${report.mandate.checkpoints} checkpoints/pass x ${c.passes} passes`);
   console.log(
     `Covered:  seq ${c.startCheckpoint ?? "n/a"}-${c.endCheckpoint ?? "n/a"} (${span ?? 0} wide) | ` +
-      `${c.txsListed} listed | ${c.txsAnalyzed} analyzed | ${c.txsSkipped} system | ${c.txsCarried} repeat`
+      `${c.txsListed} listed | ${c.txsAnalyzed} analyzed | ${c.txsTargetMissed} no target call | ` +
+      `${c.txsSkipped} system | ${c.txsCarried} repeat`
   );
   console.log(`Coverage: ${coverageCaveat(c)}`);
-  if (c.controlTraffic) {
-    console.log(
-      c.controlTraffic === "traffic-in-range"
-        ? "Control:  range has traffic; the target filter matched nothing"
-        : "Control:  range itself had no traffic (endpoint or range problem, not a clean scan)"
-    );
-  }
   console.log(`Started:  ${report.startedAt}`);
   console.log(`Finished: ${report.finishedAt}`);
   console.log(

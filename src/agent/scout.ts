@@ -7,6 +7,7 @@ import {
   ListedTransactions,
 } from "../lib/fetcher.js";
 import { runAnalysis } from "../commands/analyze.js";
+import { SuiTransactionTrace } from "../lib/types.js";
 import { triage } from "../triage/index.js";
 import { investigate, InvestigationResult } from "./investigator.js";
 
@@ -80,11 +81,11 @@ export async function scout(
     txsListed: 0,
     txsAnalyzed: 0,
     txsSkipped: 0,
+    txsTargetMissed: 0,
     txsCarried: 0,
     txsErrored: 0,
     complete: true,
     analysisComplete: true,
-    controlTraffic: null,
   };
   let seqMin: bigint | null = null;
   let seqMax: bigint | null = null;
@@ -130,14 +131,18 @@ export async function scout(
     coverage.txsListed += pass.transactions.length;
     coverage.txsAnalyzed += pass.txsAnalyzed;
     coverage.txsSkipped += pass.txsSkipped;
+    coverage.txsTargetMissed += pass.txsTargetMissed;
     coverage.txsCarried += pass.txsCarried;
     coverage.txsErrored += pass.txsErrored;
     coverage.complete = coverage.complete && pass.complete;
     coverage.analysisComplete =
       coverage.analysisComplete &&
-      pass.txsAnalyzed + pass.txsSkipped + pass.txsCarried + pass.txsErrored ===
+      pass.txsAnalyzed +
+        pass.txsSkipped +
+        pass.txsTargetMissed +
+        pass.txsCarried +
+        pass.txsErrored ===
         pass.transactions.length;
-    coverage.controlTraffic = coverage.controlTraffic ?? pass.controlTraffic;
     if (pass.readRange) {
       seqMin =
         seqMin === null || seqMin > pass.startCheckpoint
@@ -281,6 +286,14 @@ async function triageFindings(
       finding.tierError = `triage failed: ${String(err?.message ?? err).slice(0, 200)}`;
     }
   }
+
+  // A finding with no tier because the budget ran out is not a finding triage looked at and said
+  // nothing about. Silence here would read as "no verdict", so the omission gets named.
+  for (const finding of findings) {
+    if (!finding.tier && !finding.tierError) {
+      finding.tierError = "triage not attempted: RPC budget exhausted before this finding";
+    }
+  }
 }
 
 async function investigateFindings(
@@ -311,10 +324,10 @@ interface PassResult {
   readRange: boolean;
   txsAnalyzed: number;
   txsSkipped: number;
+  txsTargetMissed: number;
   txsCarried: number;
   txsErrored: number;
   complete: boolean;
-  controlTraffic: ScanCoverage["controlTraffic"];
 }
 
 async function runScanPass(
@@ -345,21 +358,27 @@ async function runScanPass(
       readRange: false,
       txsAnalyzed: 0,
       txsSkipped: 0,
+      txsTargetMissed: 0,
       txsCarried: 0,
       txsErrored: 0,
       complete: false,
-      controlTraffic: null,
     };
   }
 
   const endCheckpoint = current - 2n;
   const startCheckpoint = endCheckpoint - (BigInt(mandate.checkpoints) - 1n);
-  const isPackageId = /^0x[0-9a-f]{64}$/i.test(filter);
+  // The gRPC moveCall filter is not used to scope a target. Measured 2026-09-29: over one
+  // 2,000-checkpoint mainnet range, `0x2` package-only returned rows while `0x2::transfer` and
+  // `0x2::accumulator_settlement` returned none with complete=true — the latter had just been
+  // watched being called eight times in one PTB — and Cetus's package id returned none at all.
+  // A filter that answers "nothing called this" about a busy protocol is worse than no filter,
+  // so the range is listed unfiltered and matched against the resolved MoveCalls below.
+  const targetAddress = normalizeAddress(filter);
 
   if (verbose) {
     console.error(
-      `[scout] listing seq ${startCheckpoint}..${endCheckpoint} (${
-        isPackageId ? "server-side filter: MoveCalls into target" : "no filter: all transactions"
+      `[scout] listing seq ${startCheckpoint}..${endCheckpoint} (all transactions${
+        targetAddress ? `, matching target ${targetAddress}` : ""
       })`
     );
   }
@@ -369,7 +388,6 @@ async function runScanPass(
     listed = await fetcher.listTransactions({
       startCheckpoint,
       endCheckpoint,
-      moveCallFunction: isPackageId ? filter : undefined,
     });
     budget.spendRpc();
   } catch (err: any) {
@@ -386,39 +404,17 @@ async function runScanPass(
       readRange: false,
       txsAnalyzed: 0,
       txsSkipped: 0,
+      txsTargetMissed: 0,
       txsCarried: 0,
       txsErrored: 0,
       complete: false,
-      controlTraffic: null,
     };
-  }
-
-  // An empty filtered listing is not a clean scan. Ask whether the same range holds any
-  // transaction at all, so "target not called" stays distinguishable from "range unreadable".
-  let controlTraffic: ScanCoverage["controlTraffic"] = null;
-  if (listed.transactions.length === 0 && isPackageId) {
-    try {
-      const control = await fetcher.listTransactions({
-        startCheckpoint,
-        endCheckpoint,
-        limit: 1,
-      });
-      budget.spendRpc();
-      controlTraffic = control.transactions.length > 0 ? "traffic-in-range" : "no-traffic-in-range";
-      if (verbose) {
-        console.error(`[scout] control: ${controlTraffic}`);
-      }
-    } catch (err: any) {
-      const code = err?.code ? `[${err.code}] ` : "";
-      console.error(
-        `[scout] control listing failed: ${code}${err?.message || err?.name || "unknown error"}`
-      );
-    }
   }
 
   const results: ScanResult[] = [];
   let txsAnalyzed = 0;
   let txsSkipped = 0;
+  let txsTargetMissed = 0;
   let txsCarried = 0;
   let txsErrored = 0;
   let stoppedEarly = false;
@@ -453,17 +449,30 @@ async function runScanPass(
     seen.add(tx.digest);
 
     try {
+      if (targetAddress) {
+        // Match on the target appearing anywhere in the transaction's own trace, not on whether a
+        // detector fired: a transaction that touched the target and stayed clean is still evidence.
+        const trace = await fetcher.fetch(tx.digest);
+        if (!traceTouchesTarget(trace, targetAddress)) {
+          txsTargetMissed++;
+          if (!chargeOrStop()) break;
+          continue;
+        }
+      }
+
       const report = await runAnalysis(tx.digest, false, true, network);
       txsAnalyzed++;
       if (!chargeOrStop()) break;
 
-      // A package id is already scoped by the server-side filter. A free-text target can
-      // only be matched after analysis, against the violation evidence.
-      if (!isPackageId) {
+      // A free-text target can only be matched after analysis, against the violation evidence.
+      if (!targetAddress) {
         const touchesTarget = report.violations.some((v) =>
           JSON.stringify(v.evidence ?? {}).includes(filter)
         );
-        if (!touchesTarget) continue;
+        if (!touchesTarget) {
+          txsTargetMissed++;
+          continue;
+        }
       }
 
       if (report.violations.length > 0) {
@@ -499,6 +508,7 @@ async function runScanPass(
 
   if (verbose) {
     const parts = [`${txsAnalyzed} analyzed`, `${txsSkipped} system txs skipped`];
+    if (txsTargetMissed > 0) parts.push(`${txsTargetMissed} did not call the target`);
     if (txsCarried > 0) parts.push(`${txsCarried} already seen`);
     if (txsErrored > 0) parts.push(`${txsErrored} FAILED`);
     if (stoppedEarly) parts.push("cut short by budget");
@@ -516,9 +526,43 @@ async function runScanPass(
     readRange: true,
     txsAnalyzed,
     txsSkipped,
+    txsTargetMissed,
     txsCarried,
     txsErrored,
     complete: listed.complete,
-    controlTraffic,
   };
+}
+
+/**
+ * Sui accepts short addresses, so both sides of a target comparison need the canonical 64-hex form.
+ * Returns null for free text, which is matched against violation evidence after analysis instead.
+ */
+function normalizeAddress(target: string): string | null {
+  const m = /^0x([0-9a-fA-F]{1,64})$/.exec(target.trim());
+  if (!m) return null;
+  return `0x${m[1].toLowerCase().padStart(64, "0")}`;
+}
+
+/**
+ * Sui reports a package two ways: calls and events carry the *updated* id, while type strings keep
+ * the *original* one, and routed volume never names the protocol in a top-level call at all. So a
+ * target is compared against every address-shaped position the trace offers.
+ */
+function traceTouchesTarget(trace: SuiTransactionTrace, target: string): boolean {
+  for (const cmd of trace.ptbCommands ?? []) {
+    if (normalizeAddress(cmd.packageId ?? "") === target) return true;
+  }
+  for (const ev of trace.events ?? []) {
+    if (moveTypePackage(ev.type) === target) return true;
+  }
+  for (const obj of trace.objectChanges ?? []) {
+    if (moveTypePackage(obj.objectType) === target) return true;
+  }
+  return false;
+}
+
+function moveTypePackage(value: string | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const m = /^0x([0-9a-fA-F]{1,64})::/.exec(value.trim());
+  return m ? `0x${m[1].toLowerCase().padStart(64, "0")}` : null;
 }

@@ -19,20 +19,19 @@ export interface ScanCoverage {
   txsAnalyzed: number;
   /** System transactions with no programmable body — a legitimate skip. */
   txsSkipped: number;
+  /**
+   * Transactions whose resolved MoveCalls did not touch the target package. Reached and
+   * answered, just not a match — without this the coverage arithmetic reads them as unreached.
+   */
+  txsTargetMissed: number;
   /** Already analyzed in an earlier pass; passes overlap as the chain advances. */
   txsCarried: number;
   /** Analyses that failed for a reason other than being a system transaction. */
   txsErrored: number;
   /** Every listing walked to its checkpoint bound. */
   complete: boolean;
-  /** Every transaction returned by a listing was actually analyzed. */
+  /** Every transaction returned by a listing was accounted for: analyzed, skipped, missed, seen or failed. */
   analysisComplete: boolean;
-  /**
-   * Existence control, recorded only when a target-filtered listing returned nothing:
-   * whether the same range holds any transaction at all. Distinguishes "the target
-   * was not called" from "the range was not readable".
-   */
-  controlTraffic: "traffic-in-range" | "no-traffic-in-range" | null;
 }
 
 export interface ScanResult {

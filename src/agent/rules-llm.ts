@@ -72,7 +72,7 @@ export class RuleBasedLLM implements ScoutLLM {
     return {
       text: [
         `Scanned ${input.mandate.target} over ${c.passes} passes spanning seq ${covered.replace("seq ", "")} (${span ?? 0} checkpoints wide;`,
-        `${c.txsListed} txs listed, ${c.txsAnalyzed} analyzed)`,
+        `${c.txsListed} txs listed, ${c.txsTargetMissed} did not call the target, ${c.txsAnalyzed} analyzed)`,
         `for goal: "${input.mandate.goal}".`,
         `Coverage: ${coverageCaveat(c)}.`,
         degraded > 0
@@ -83,8 +83,10 @@ export class RuleBasedLLM implements ScoutLLM {
         `Budget used: ${input.usage.rpcCalls} RPC, ${input.usage.llmCalls} LLM calls, ${input.usage.llmTokens} tokens, ${input.usage.elapsedMs}ms.`,
         input.findings.length === 0
           ? c.txsListed === 0
-            ? "This was an EMPTY SCAN, not a clean one: no transaction matched the target filter."
-            : "No violations detected within the covered range."
+            ? "This was an EMPTY SCAN, not a clean one: the range listed no transactions at all."
+            : c.txsAnalyzed === 0
+              ? `EMPTY AGAINST THE TARGET, not a clean scan: ${c.txsListed} transactions in range, none called ${input.mandate.target}.`
+              : "No violations detected within the covered range."
           : "Findings present. Recommend triage on the returned digests.",
       ]
         .filter((line): line is string => line !== null)

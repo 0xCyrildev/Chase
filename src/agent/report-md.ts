@@ -11,7 +11,12 @@ export function coverageCaveat(c: ScanCoverage): string {
   if (!c.complete) problems.push("a listing stopped before the checkpoint bound");
   if (c.txsErrored > 0) problems.push(`${c.txsErrored} transactions failed to analyze`);
 
-  const unreached = c.txsListed - c.txsAnalyzed - c.txsSkipped - c.txsErrored;
+  const unreached =
+    c.txsListed -
+    c.txsAnalyzed -
+    c.txsTargetMissed -
+    c.txsSkipped -
+    c.txsErrored;
   if (unreached > 0) problems.push(`${unreached} of ${c.txsListed} listed txs not reached`);
 
   if (problems.length === 0) {
@@ -31,6 +36,7 @@ export function toMarkdown(report: AgentReport): string {
   lines.push(`**Scope:** ${report.mandate.checkpoints} checkpoints per pass × ${c.passes} passes`);
   const span = coverageSpan(c);
   const counted = [`${c.txsListed} txs listed`, `${c.txsAnalyzed} analyzed`];
+  if (c.txsTargetMissed > 0) counted.push(`${c.txsTargetMissed} did not call the target`);
   if (c.txsSkipped > 0) counted.push(`${c.txsSkipped} system txs skipped`);
   if (c.txsCarried > 0) counted.push(`${c.txsCarried} already seen`);
   if (c.txsErrored > 0) counted.push(`${c.txsErrored} failed`);
@@ -38,15 +44,6 @@ export function toMarkdown(report: AgentReport): string {
     `**Covered:** seq ${c.startCheckpoint ?? "n/a"}–${c.endCheckpoint ?? "n/a"} (${span ?? 0} checkpoints wide) · ${counted.join(" · ")}`
   );
   lines.push(`**Coverage:** ${coverageCaveat(c)}`);
-  if (c.controlTraffic === "traffic-in-range") {
-    lines.push(
-      `**Control:** the filtered listing matched nothing, yet the same range does contain transactions — the target was not reached by a top-level MoveCall here.`
-    );
-  } else if (c.controlTraffic === "no-traffic-in-range") {
-    lines.push(
-      `**Control:** the same range holds no transactions even unfiltered — an endpoint or range problem, not a clean result.`
-    );
-  }
   lines.push(`**Started:** ${report.startedAt}`);
   lines.push(`**Duration:** ${report.usage.elapsedMs}ms`);
   lines.push(``);
