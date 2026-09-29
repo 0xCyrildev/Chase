@@ -54,7 +54,7 @@
     "mcp": "tsx src/mcp-server.ts",
     "triage": "tsx src/triage/cli.ts",
     "hunt": "tsx src/agent/cli.ts",
-    "test": "./scripts/run-tests.sh && ./scripts/run-triage-tests.sh && npx tsx scripts/agent-tests.ts",
+    "test": "./scripts/run-tests.sh && ./scripts/run-triage-tests.sh && npx tsx scripts/agent-tests.ts && npx tsx scripts/test-budget.ts",
     "test:agent": "npx tsx scripts/agent-tests.ts",
     "typecheck": "tsc --noEmit",
     "mcp:selftest": "tsx scripts/mcp-selftest.ts",

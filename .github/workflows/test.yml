@@ -23,3 +23,5 @@ jobs:
         run: ./scripts/run-triage-tests.sh
       - name: Agent, budget and CLI regression
         run: npx tsx scripts/agent-tests.ts
+      - name: Budget unit checks
+        run: npx tsx scripts/test-budget.ts

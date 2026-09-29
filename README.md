@@ -624,11 +624,12 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
 npm run test:agent        # target matching, budget reserve, investigator,
-                          # batch shape, CLI validation — 34 checks, offline
+                          # batch shape, CLI validation, dry-run coverage
+npx tsx scripts/test-budget.ts   # Budget unit checks (rpc/llm/token/time)
 ```
 
 ```bash
-npm test                  # all three suites
+npm test                  # all four suites
 ```
 
 Both suites read committed fixtures, so they are offline and deterministic —
