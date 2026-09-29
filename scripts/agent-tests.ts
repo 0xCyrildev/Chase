@@ -224,6 +224,16 @@ check("an orthogonal detector still corroborates all three", [...CLUSTER].every(
 check("the orthogonal finding keeps the cluster in its own corroboration", (byType.get("CAPABILITY_TRANSFER") ?? []).length === 3,
   (byType.get("CAPABILITY_TRANSFER") ?? []).join(","));
 
+console.log("\npublish identity (npm ci checks this; a local run should too)");
+
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+const lock = JSON.parse(fs.readFileSync(path.join(ROOT, "package-lock.json"), "utf8"));
+const lockRoot = lock.packages?.[""] ?? {};
+check("package.json and the lockfile name agree", lockRoot.name === pkg.name, `${lockRoot.name} vs ${pkg.name}`);
+check("package.json and the lockfile version agree", lockRoot.version === pkg.version, `${lockRoot.version} vs ${pkg.version}`);
+check("version.ts reads the same value the manifest declares", (await import("../src/lib/version.js")).VERSION === pkg.version);
+check("the package is scoped to the npm username, not the GitHub handle", pkg.name.startsWith("@zeroxcyril/"), pkg.name);
+
 console.log("\nbatch output shape");
 
 const digests = path.join(os.tmpdir(), `chase-agent-batch-${process.pid}.txt`);
