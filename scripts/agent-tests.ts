@@ -294,6 +294,37 @@ check("the capability transfer escalated too", !!inv1 && (ef.find((f) => f.diges
   `${ef.find((f) => f.digest === P1_TX)?.tier} / ${inv1?.verdict}`);
 fs.rmSync(txsFile, { force: true });
 
+console.log("\nendpoint configuration (the retention escape hatch)");
+
+const { TraceFetcher } = await import("../src/lib/fetcher.js");
+const savedRpc = process.env.SUI_RPC_URL;
+const savedArchive = process.env.SUI_ARCHIVE_URL;
+try {
+  delete process.env.SUI_RPC_URL;
+  delete process.env.SUI_ARCHIVE_URL;
+  const constructs = (which: "mainnet" | "testnet") => {
+    try {
+      void new TraceFetcher(which);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  check("with no override, a fetcher still constructs for mainnet", constructs("mainnet"));
+  process.env.SUI_RPC_URL = "http://example.com:443";
+  let msg = "";
+  try { new TraceFetcher("mainnet"); } catch (e: any) { msg = String(e?.message); }
+  check("a plain http endpoint is refused, not silently used", /https:\/\/ URL/.test(msg), msg.slice(0, 70));
+  process.env.SUI_RPC_URL = "   ";
+  check("a blank override falls back to the default rather than erroring", constructs("mainnet"));
+  process.env.SUI_RPC_URL = "https://rpc.provider.example/v1";
+  process.env.SUI_ARCHIVE_URL = "https://archive.provider.example/v1";
+  check("valid https overrides construct", constructs("testnet"));
+} finally {
+  if (savedRpc === undefined) delete process.env.SUI_RPC_URL; else process.env.SUI_RPC_URL = savedRpc;
+  if (savedArchive === undefined) delete process.env.SUI_ARCHIVE_URL; else process.env.SUI_ARCHIVE_URL = savedArchive;
+}
+
 console.log("\nbatch output shape");
 
 const digests = path.join(os.tmpdir(), `chase-agent-batch-${process.pid}.txt`);

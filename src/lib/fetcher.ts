@@ -55,6 +55,25 @@ async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 500): P
   throw lastErr;
 }
 
+/**
+ * Endpoint resolution. An override is validated rather than passed through: a typo here would
+ * otherwise show up much later as an opaque fetch failure on every transaction, and a plain http
+ * endpoint would silently leak the digest query in cleartext.
+ */
+function resolveEndpoint(kind: "fullnode" | "archive", network: string): string {
+  const envName = kind === "fullnode" ? "SUI_RPC_URL" : "SUI_ARCHIVE_URL";
+  const value = (process.env[envName] ?? "").trim();
+  if (value === "") {
+    return kind === "fullnode"
+      ? `https://fullnode.${network}.sui.io:443`
+      : "https://archive.mainnet.sui.io:443";
+  }
+  if (!/^https:\/\/[^\s]+$/.test(value)) {
+    throw new Error(`${envName} must be an https:// URL, got: ${value.slice(0, 80)}`);
+  }
+  return value.replace(/\/+$/, "");
+}
+
 export class TraceFetcher {
   private fullnode: SuiGrpcClient;
   private archival: SuiGrpcClient | null;
@@ -66,14 +85,19 @@ export class TraceFetcher {
     this.useCache = useCache;
     this.fullnode = new SuiGrpcClient({
       network,
-      baseUrl: `https://fullnode.${network}.sui.io:443`,
+      baseUrl: resolveEndpoint("fullnode", network),
     });
 
+    // Historically an archive client was built for mainnet only, because the public archive serves
+    // mainnet. Pointing SUI_ARCHIVE_URL at a provider or a self-run node is the only way to actually
+    // query history beyond the public retention window, so an explicit URL enables it on any network
+    // — and it is on the operator that the endpoint matches the network they asked for.
+    const archiveExplicit = (process.env.SUI_ARCHIVE_URL ?? "").trim() !== "";
     this.archival =
-      network === "mainnet"
+      network === "mainnet" || archiveExplicit
         ? new SuiGrpcClient({
             network,
-            baseUrl: "https://archive.mainnet.sui.io:443",
+            baseUrl: resolveEndpoint("archive", network),
           })
         : null;
   }
@@ -139,6 +163,20 @@ export class TraceFetcher {
     } catch (err: any) {
       if (String(err?.message ?? "").includes("Only programmable transactions")) {
         throw new NonProgrammableTransaction(digest);
+      }
+      // A gRPC RpcError can arrive with an empty message. In a sweep that turns "these transactions
+      // could not be read" into silent gaps — nine of them appeared in one 1,106-transaction run
+      // today with nothing but "RpcError" to explain it. Name the code and detail instead.
+      if (typeof err?.message === "string" && err.message.trim() === "") {
+        const code = err?.codeName ?? (typeof err?.code === "number" ? `code ${err.code}` : "unknown");
+        const detail =
+          typeof err?.details === "string" && err.details ? ` — ${err.details.slice(0, 160)}` : "";
+        const wrapped = new Error(
+          `gRPC ${err?.constructor?.name ?? "RpcError"} ${code}${detail} while reading ${digest.slice(0, 12)}…`
+        ) as Error & { reason?: string; code?: unknown };
+        wrapped.reason = err?.reason;
+        wrapped.code = err?.code;
+        throw wrapped;
       }
       throw err;
     }

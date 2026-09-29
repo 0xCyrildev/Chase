@@ -49,6 +49,11 @@ below apply.
 Optional layers read `LLM_API_KEY` / `LLM_ENDPOINT` / `LLM_MODEL` (any OpenAI-compatible endpoint) and
 are needed only for `--explain` prose and for `chase_hunt` / `chase hunt` with `mode: "real"`.
 
+Endpoints are optional too: `SUI_RPC_URL` and `SUI_ARCHIVE_URL` replace the public gRPC fullnodes with a
+provider or your own node — the only way to read transactions older than the public retention window.
+Both must be `https://` and are validated at startup, so a typo fails the run instead of every
+transaction in it.
+
 One-call wrapper, if you would rather not compose the CLI yourself (prints triaged JSON, keeps Chase's
 exit codes — `1` means a violation fired, not that the tool broke):
 
@@ -155,8 +160,9 @@ that run without network access.
 - **Retention.** Public fullnodes prune history; roughly beyond ~21 days a digest returns `not found`.
   Chase then tries the public archive endpoint — measured, that endpoint answers without any token but
   also returns `not found` for pruned digests, so the fallback does not recover history. For older
-  transactions, point Chase at a provider or your own archival node (configurable endpoints are not
-  implemented yet).
+  transactions, point Chase at a provider or your own archival node with `SUI_ARCHIVE_URL` (https only,
+  refused at startup if malformed). A gRPC read that fails with no message of its own no longer surfaces
+  as a bare `RpcError` — it now names the code, the details and the digest it was reading.
 - **Balances are address-scoped.** Shared-object changes appear as object mutations, not address deltas,
   which is the noise source behind `ADDRESS_OUTFLOW`.
 - **Routed volume has a matching ceiling.** Presence is checked against top-level call packages, event

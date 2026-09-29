@@ -112,9 +112,11 @@ mainnet with no configuration at all. `SUI_NETWORK` changes that default, and
 `LLM_API_KEY` / `LLM_ENDPOINT` / `LLM_MODEL` are read only by
 `chase triage --explain` and `chase hunt --mode real`.
 
-Endpoints are not configurable: Chase speaks gRPC to
-`https://fullnode.<network>.sui.io:443`, with `archive.mainnet.sui.io` as the
-mainnet fallback for pruned digests.
+Endpoints default to the public Sui gRPC fullnodes
+(`https://fullnode.<network>.sui.io:443`) and need no configuration.
+`SUI_RPC_URL` and `SUI_ARCHIVE_URL` override them for a provider or your own
+node — https only, refused at startup rather than failing per transaction —
+which is the way to analyse history beyond the public retention window.
 
 ## Usage
 
@@ -730,8 +732,13 @@ sui client publish --gas-budget 100000000
   has pruned, including two of this repo's own mainnet fixtures. So the
   fallback is attempted and does not recover history; the error now says so
   instead of reporting a bare second miss. Two of the nine fixtures can only be
-  re-analysed because their traces are committed — for real historical work,
-  use a provider like Triton or Quicknode, or run your own archival node.
+  re-analysed because their traces are committed. The fix is an endpoint that
+  keeps history: point `SUI_ARCHIVE_URL` at a provider archive (Triton,
+  Quicknode) or your own archival node, and pruned digests resolve. A failure
+  on the way there is now named — an empty-message gRPC error used to print
+  `RpcError` and nothing else, which is how nine transactions vanished
+  unexplained in a 1,106-tx run; it now reports
+  `gRPC RpcError <code> — <details> while reading <digest>`.
 
 - **`balanceChanges` is address-scoped.** Shared-object balance changes
   appear as `effects.changedObjects` mutations, not as address deltas. This
@@ -779,13 +786,15 @@ sui client publish --gas-budget 100000000
 ## Roadmap
 
 - [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise
-- [ ] Configurable RPC endpoints (`SUI_RPC_URL` / provider URLs) — so a Triton,
-      Quicknode or self-run archive can be used for historical analysis. The
-      public archive endpoint is reachable without a token but does not hold
-      pruned digests, so a token would not have fixed the retention gap.
+- [x] Configurable RPC endpoints — `SUI_RPC_URL` / `SUI_ARCHIVE_URL` (0.1.4), so
+      a Triton, Quicknode or self-run archive can be used for historical
+      analysis. The public archive endpoint is reachable without a token but
+      does not hold pruned digests, so a token would not have fixed the
+      retention gap; an override is what does.
 - [ ] Persist checkpoint cursor across watch runs
 - [ ] Additional invariants: dynamic field abuse, event-less state changes
-- [ ] Publish to npm so `npx` works without a git clone
+- [x] Publish to npm — `@zeroxcyril/chase`, installable and runnable via `npx`
+      without a git clone
 - [ ] Scout agent: autonomous *target selection* (the scanning loop, budget and
       triage pass shipped; the target still comes from the mandate)
 
