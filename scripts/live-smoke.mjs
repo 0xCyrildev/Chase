@@ -5,7 +5,8 @@
  * transactions uncached. The fixture suites prove the invariants; only this proves the
  * transport, the signature resolver and the retention window still answer on a real chain.
  *
- * Deliberately small. A mainnet checkpoint holds hundreds of transactions; this touches three.
+ * Deliberately small. One mainnet checkpoint measured 30-74 transactions this evening, and a smoke
+ * test has no business pulling all of them from a public fullnode. This touches three.
  */
 import { resolveNetwork } from "../dist/commands/analyze.js";
 import { TraceFetcher } from "../dist/lib/fetcher.js";
