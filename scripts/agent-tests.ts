@@ -149,33 +149,201 @@ check("a mandate without a reserve still validates", (() => {
 
 console.log("\ninvestigator (escalation branch, offline)");
 
-// P0 fixture: a synthetic public &mut return, published to testnet.
+const { parseInvestigation } = await import("../src/agent/llm.js");
+const rules = new (await import("../src/agent/rules-llm.js")).RuleBasedLLM();
+
+// P0 fixture: a synthetic public &mut return, published to testnet. Committed trace, so the
+// reading happens with no network in play.
 const p0 = await investigate(
   {
     digest: "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg",
     checkpoint: "1",
-    violations: [{ type: "MUTABLE_REFERENCE_RETURNED", severity: "high", message: "returns &mut" }],
+    tier: "P0",
+    score: 82,
+    action: "ESCALATE",
+    violations: [
+      {
+        type: "MUTABLE_REFERENCE_RETURNED",
+        severity: "high",
+        message: "returns &mut",
+        evidence: {
+          caller: "0x0000000000000000000000000000000000000001",
+          package: "0x0000000000000000000000000000000000000002",
+          module: "pricing",
+          function: "update_price",
+          commandIndex: 2,
+        },
+      },
+    ],
   } as any,
-  "testnet"
+  "testnet",
+  (input: any) => rules.investigate(input)
 );
-check("investigate returns a verdict, not an analysis failure", p0.verdict !== "needs-review" || !/could not re-analyze/.test(p0.reasoning), `${p0.verdict}: ${p0.reasoning.slice(0, 80)}`);
+check("the escalated transaction is actually read", p0.evidence.commandCount > 0, `${p0.evidence.commandCount} commands`);
+check(
+  "the evidence names the function the signal fired on",
+  p0.evidence.signals.some((s: any) => s.matched.some((m: string) => m.includes("::"))),
+  JSON.stringify(p0.evidence.signals).slice(0, 140)
+);
+check("a deterministic reading says it is deterministic", p0.source === "rules" && p0.degraded === false, `${p0.source}/${p0.degraded}`);
 check("the P0 is classified as suspicious", p0.verdict === "suspicious", `${p0.verdict} / ${p0.hypothesis}`);
-check("the verdict carries the tier it came from", typeof p0.tier === "string" && p0.tier.length > 0, String(p0.tier));
+check("the verdict carries the tier it came from", p0.tier === "P0", String(p0.tier));
+check("the reading is not a restatement of the tier", !/^Triage assigned tier/.test(p0.reasoning), p0.reasoning.slice(0, 60));
 
-// A digest that cannot be re-analyzed must degrade honestly rather than invent a verdict.
-// This is the one case in this file that touches the network: the fixture trace is not committed and
-// the digest is pruned, so investigate() sees a failure either way. That is the point being asserted.
-const dead = await investigate(
-  { digest: "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7", checkpoint: "1", violations: [{ type: "X", severity: "low", message: "m" }] } as any,
-  "mainnet"
+// An oracle escalation: every high signal came from a function-name match, which is not evidence of
+// a state change. The honest deterministic answer is "a human must read the function".
+const oracleOnly = await rules.investigate({
+  digest: "A".repeat(44),
+  network: "mainnet",
+  tier: "P1",
+  score: 55,
+  action: "MANUAL_REVIEW",
+  violations: [{ type: "ORACLE_MANIPULATION_SUSPECTED", severity: "high", message: "update then withdraw" }],
+  evidence: {
+    sender: "0x0000000000000000000000000000000000000001",
+    success: true,
+    commandCount: 12,
+    commands: [],
+    packages: [{ package: "0x00000000", calls: 9 }],
+    signals: [
+      {
+        type: "ORACLE_MANIPULATION_SUSPECTED",
+        severity: "high",
+        matched: ["0x00000000::pool::update_price", "0x00000000::vault::withdraw"],
+        count: 3,
+      },
+    ],
+    movements: [],
+    transfers: [],
+    events: [],
+    notes: [],
+  },
+});
+check(
+  "a name-match-only escalation is not called suspicious",
+  oracleOnly.verdict === "needs-review",
+  `${oracleOnly.verdict} / ${oracleOnly.hypothesis}`
 );
-check("an unanalyzable digest comes back as needs-review, not benign", dead.verdict === "needs-review", `${dead.verdict} / ${dead.reasoning.slice(0, 60)}`);
+check(
+  "…and the reading says which signal it is deferring on",
+  /ORACLE_MANIPULATION_SUSPECTED/.test(oracleOnly.reasoning),
+  oracleOnly.reasoning.slice(0, 120)
+);
+check(
+  "three identical firings collapse into one counted signal",
+  oracleOnly.reasoning.includes("ORACLE_MANIPULATION_SUSPECTED×3"),
+  oracleOnly.reasoning.slice(0, 100)
+);
+
+// The extractor that turns detector evidence into names, over the oracle shape the keyword detector
+// actually emits. This is the part a reader checks a tier against.
+const { describe: describeTrace } = await import("../src/agent/investigator.js");
+const oracleTrace = {
+  digest: "x",
+  network: "mainnet",
+  sender: `0x${"11".repeat(32)}`,
+  success: true,
+  balanceChanges: [],
+  objectChanges: [],
+  events: [],
+  ptbCommands: [
+    { index: 4, kind: "MoveCall", packageId: `0x${"ab".repeat(32)}`, module: "alpha_lending", function: "update_price" },
+    { index: 21, kind: "MoveCall", packageId: `0x${"cd".repeat(32)}`, module: "router", function: "new_swap_context" },
+  ],
+};
+const extracted = describeTrace(
+  {
+    digest: "x",
+    violations: [
+      {
+        type: "ORACLE_MANIPULATION_SUSPECTED",
+        severity: "high",
+        message: "update then swap",
+        evidence: {
+          oracleCmd: oracleTrace.ptbCommands[0],
+          defiCmd: oracleTrace.ptbCommands[1],
+          oracleIndex: 4,
+          defiIndex: 21,
+        },
+      },
+      {
+        type: "ORACLE_MANIPULATION_SUSPECTED",
+        severity: "high",
+        message: "update then swap",
+        evidence: {
+          oracleCmd: oracleTrace.ptbCommands[0],
+          defiCmd: oracleTrace.ptbCommands[1],
+          oracleIndex: 4,
+          defiIndex: 21,
+        },
+      },
+    ],
+  } as any,
+  oracleTrace as any
+);
+check(
+  "a nested command pair is reported as the two names it matched",
+  extracted.signals[0].matched.length === 2 &&
+    extracted.signals[0].matched.some((m) => m.includes("alpha_lending::update_price")) &&
+    extracted.signals[0].matched.some((m) => m.includes("router::new_swap_context")),
+  JSON.stringify(extracted.signals[0].matched)
+);
+check(
+  "identical firings collapse to one signal with a count",
+  extracted.signals.length === 1 && extracted.signals[0].count === 2,
+  JSON.stringify({ n: extracted.signals.length, count: extracted.signals[0].count })
+);
+
+// A model answer is only ever attributed to the model when the parse succeeded.
+check(
+  "a parsed model reading is labelled model",
+  parseInvestigation('{"verdict":"benign","hypothesis":"feed refresh","reasoning":"ordinary withdrawal"}')?.source === "model",
+  ""
+);
+check("an out-of-vocabulary verdict is refused, not defaulted", parseInvestigation('{"verdict":"exploit","hypothesis":"x","reasoning":"y"}') === null, "");
+check("prose around the JSON is tolerated, junk is not", parseInvestigation("here you go:\n{\"verdict\":\"suspicious\",\"hypothesis\":\"h\",\"reasoning\":\"r\"}")?.verdict === "suspicious", "");
+check(
+  "a reading layer that throws is reported as a fallback, not as a verdict",
+  (
+    await investigate(
+      { digest: "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg", violations: [], tier: "P1" } as any,
+      "testnet",
+      async () => {
+        throw new Error("endpoint down");
+      }
+    )
+  ).degraded === true,
+  ""
+);
+
+// A digest with no committed trace must say the trace was unreadable rather than invent a reading.
+// 5RHbYg… would not prove this: it is one of the two committed mainnet fixtures, so it reads offline.
+// The endpoint is aimed at a closed local port, so the read cannot succeed on any digest.
+process.env.SUI_RPC_URL = "https://127.0.0.1:1";
+process.env.SUI_ARCHIVE_URL = "https://127.0.0.1:1";
+const unreadable = await investigate(
+  {
+    digest: "HzQ9zQ7vkKcwNZKwcNVKcLbhUxjnTVKHrUJmBB8sQdBd",
+    violations: [{ type: "X", severity: "low", message: "m" }],
+    tier: "P2",
+  } as any,
+  "mainnet",
+  (input: any) => rules.investigate(input)
+);
+delete process.env.SUI_RPC_URL;
+delete process.env.SUI_ARCHIVE_URL;
+check(
+  "an unreadable digest comes back as needs-review, not benign",
+  unreadable.verdict === "needs-review" && /trace unreadable/.test(unreadable.reasoning),
+  `${unreadable.verdict} / ${unreadable.reasoning.slice(0, 80)}`
+);
+check("an unreadable digest still carries its notes", unreadable.evidence.notes.length > 0, JSON.stringify(unreadable.evidence.notes).slice(0, 100));
 
 console.log("\ndry-run coverage (the published artifact surfaced this one)");
 
 const { scout } = await import("../src/agent/scout.js");
 const { RuleBasedLLM } = await import("../src/agent/rules-llm.js");
-const { coverageCaveat } = await import("../src/agent/report-md.js");
+const { coverageCaveat, toMarkdown } = await import("../src/agent/report-md.js");
 
 const emptyCov = {
   passes: 0, startCheckpoint: null, endCheckpoint: null, checkpointsScanned: 0,
@@ -289,10 +457,52 @@ const inv = ef.find((f) => f.digest === P0_TX)?.investigation;
 check("THE INVESTIGATOR ACTUALLY RAN", !!inv, "no investigation attached to the P0");
 check("and it reached a verdict, not a shrug", inv?.verdict === "suspicious" && !!inv.hypothesis && inv.hypothesis !== "unclassified",
   `${inv?.verdict} / ${inv?.hypothesis} / ${inv?.reasoning?.slice(0, 60)}`);
+check("the reading names the layer that produced it", inv?.source === "rules" && inv?.degraded === false,
+  `${inv?.source}/${inv?.degraded}`);
+check("the reading cites a transaction it actually read", (inv?.evidence.commandCount ?? 0) > 0,
+  String(inv?.evidence.commandCount));
+check("detector evidence survives from analysis into the finding",
+  ef.some((f) => f.violations.some((v) => v.evidence !== undefined)),
+  JSON.stringify(ef[0]?.violations?.[0]?.evidence ?? null).slice(0, 60));
+check("a real escalation's evidence names what actually fired",
+  (inv?.evidence.signals ?? []).some((s: any) => s.matched.length > 0),
+  JSON.stringify(inv?.evidence.signals ?? []).slice(0, 160));
+
+// A reading nobody can see is a reading that did not happen: both renderers must carry the verdict,
+// the evidence line and the provenance label.
+const md = toMarkdown(escalated);
+check("markdown renders the verdict with its provenance",
+  /Investigator:.*\(rules layer, not a model\)/s.test(md), md.match(/Investigator:.*/s)?.[0]?.slice(0, 90) ?? "absent");
+check("markdown renders what was read", /read: \d+ cmds/.test(md), md.match(/read: .*/)?.[0]?.slice(0, 80) ?? "absent");
 const inv1 = ef.find((f) => f.digest === P1_TX)?.investigation;
 check("the capability transfer escalated too", !!inv1 && (ef.find((f) => f.digest === P1_TX)?.tier ?? "") !== "NOISE",
   `${ef.find((f) => f.digest === P1_TX)?.tier} / ${inv1?.verdict}`);
 fs.rmSync(txsFile, { force: true });
+
+console.log("\ndetector shapes the keyword lists used to miss");
+
+const { flashLoanShaped } = await import("../src/invariants/flash-loan-shaped.js");
+const mc = (index: number, module: string, fn: string) => ({ index, kind: "MoveCall", packageId: `0x${"ab".repeat(32)}`, module, function: fn });
+const cetusFlash = flashLoanShaped.check({
+  ptbCommands: [
+    mc(11, "pool", "flash_swap"),
+    mc(14, "pool", "swap_exact_one_for_amount"),
+    mc(17, "pool", "repay_flash_swap"),
+  ],
+} as any);
+check(
+  "a Cetus flash_swap → swap → repay_flash_swap sequence is recognised",
+  cetusFlash.some((v) => v.type === "FLASH_LOAN_SHAPED"),
+  JSON.stringify(cetusFlash.map((v) => v.message))
+);
+const noActionInBetween = flashLoanShaped.check({
+  ptbCommands: [mc(0, "pool", "flash_swap"), mc(1, "pool", "repay_flash_swap")],
+} as any);
+check(
+  "…and a bare borrow/repay pair with no action between them is not",
+  noActionInBetween.length === 0,
+  JSON.stringify(noActionInBetween.map((v) => v.type))
+);
 
 console.log("\nendpoint configuration (the retention escape hatch)");
 

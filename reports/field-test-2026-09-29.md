@@ -137,3 +137,129 @@ transactions, and that `inspect=0` makes no presence claim.
   it wholesale would be wrong for a real flash-loan attack, which is why the fix was made at the
   corroboration layer instead.
 - **Throughput ceiling** is the public fullnode's, not the tool's; a provider endpoint changes it.
+
+---
+
+# Follow-up, same day: organic traffic, and what the investigator actually was
+
+## The wide sweep
+
+The 308-transaction run above was a head sample of one checkpoint range. This one spread 160
+checkpoints evenly across the whole retention window (seq 322845578–328417681, 5,572,103 checkpoints
+wide), de-duplicated to 4,198 unique transactions, and analyzed what the fullnode still had:
+
+```
+retention window: lowest=322845578 current=328417681 (5572103 checkpoints); sampled 160 spread evenly -> 4198 unique txs
+
+== 3616 organic txs in 394s (9.2/s) | reverted 303 | flagged 382 (10.6%) | HIGH/CRITICAL-or-signature hits 3 ==
+system 571 | notfound 0 | errors 11
+   545  REENTRANCY_PATTERN
+   258  REPEATED_MODULE_CALLS
+    68  ADDRESS_OUTFLOW
+    59  FLASH_LOAN_SHAPED
+    10  ORACLE_MANIPULATION_SUSPECTED
+     2  UNEXPECTED_TRANSFER
+```
+
+Three candidates surfaced, all of them on `ORACLE_MANIPULATION_SUSPECTED`, none reverted. Two numbers
+worth keeping: 9.2 tx/s sustained against the public fullnode, and 11 errors out of 3,616 — of which
+nine were `RpcError` with an **empty message**, which is to say the tool could tell that something
+failed and nothing about what. That is now wrapped as
+`gRPC RpcError <code> — <details> while reading <digest>`.
+
+## The investigator was not investigating
+
+Pointing `chase hunt --txs` at those three candidates produced a verdict for each, and the verdicts
+were worthless:
+
+```
+investigator: suspicious — high-severity pattern
+  Triage assigned tier P1. At least one high-severity violation present.
+```
+
+Reading the code explained it. `investigate()` re-analyzed the digest (a second fetch), re-ran triage
+on it (a third), and then selected a sentence from a table keyed on the tier triage had already
+assigned. It never read anything triage had not already counted, and it never asked the decision
+layer a question — `--mode real` and `--mode rules` produced the identical string. It also did not
+record which layer had answered, so a table lookup was indistinguishable from a model's judgement in
+the JSON. Every escalated finding cost four calls to restate one.
+
+What it does now: one trace read, then a structured account of what the transaction contains —
+commands in order, packages by call count, largest coin movements, transfers, events, and the exact
+function names each high-severity detector matched, with identical firings collapsed to one counted
+signal. The verdict is asked of the decision layer over that evidence, and the layer is recorded.
+Detector evidence is carried on the finding instead of being re-derived, because dropping it at the
+scan boundary is what forced the re-analysis in the first place.
+
+The deterministic layer is now explicitly not allowed to sound like a judgement: when every
+high-severity signal rests on a function name — which is what all three organic candidates turned out
+to be — it answers `needs-review` and names what to read next.
+
+```
+investigator: needs-review — name match only (rules layer, not a model)
+  read: 29 cmds, 5 pkgs, top 0x000000… ×10, succeeded, movement 0xd2c6e3… -4199388 sui::SUI | ORACLE_MANIPULATION_SUSPECTED×3 [0xe48b33…::alpha_lending::update_price, 0x25ebb9…::pool::flash_swap]
+  Every high-severity signal here fired on a function name: ORACLE_MANIPULATION_SUSPECTED×3. A name
+  match is not a state change — read the left-hand function of each pair to check whether it writes a
+  value the right-hand call consumes. Nothing here is evidence either way.
+```
+
+`--mode real`, same transaction, same evidence:
+
+```
+investigator: suspicious — oracle price update followed by flash swap and repayment (read by poolside/laguna-s-2.1:free)
+  … calls alpha_lending::update_price at cmd[4], cmd[7], and cmd[10], each immediately followed by
+  oracle::get_price_info and type_name::get, then executes pool::flash_swap at cmd[11] and cmd[14],
+  with pool::repay_flash_swap at cmd[17] and cmd[27] … value leaves to the sender (0xd2c6e3… receives
+  +2075 USDC and +9999 DEEP while paying -4199388 SUI) …
+```
+
+Two findings from that pair, both kept deliberately visible:
+
+- **The layers disagree on identical evidence.** That is the reason provenance is printed on every
+  reading rather than only when a layer fails. Neither answer is a vulnerability; the model's is a
+  hypothesis about commands it can see, and the evidence carries no function signatures or arguments,
+  so *who controls the price* is still unanswered.
+- **The model's sentence exposed a detector gap.** `pool::flash_swap → pool::repay_flash_swap` was
+  sitting in the evidence while `FLASH_LOAN_SHAPED` stayed silent: `BORROW_KEYWORDS` had `borrow`,
+  `flash_loan`, `flashloan`, `loan` — and Cetus's entry point is named neither. (Section above: the
+  same shape was already known as the source of every P2 in the 308-tx run, where it was handled at
+  the corroboration layer. Handling it there was right; being blind to it was not.)
+
+## Pricing the detector fix, offline
+
+`scripts/corpus-report.mjs` runs the invariant + triage pipeline over every trace in the local cache —
+6,502 mainnet transactions, no RPC, repeatable. Before/after, produced by swapping the compiled
+keyword list and rebuilding:
+
+| | before | after |
+|---|---|---|
+| `FLASH_LOAN_SHAPED` findings | 90 | 154 |
+| transactions with any finding | 652 (10.0%) | 707 (10.9%) |
+| high-severity findings | 16 | 16 |
+| worst tier per tx | P1=4 P3=277 NOISE=371 | P1=4 P3=335 NOISE=371 |
+
+Every added fire landed at P3. Manual-review load did not move; a pattern that was invisible is now
+visible at the lowest useful tier. Borrow/repay names observed across the corpus after the change,
+which is the real shape of what got picked up:
+
+```
+flash_swap_with_partner/repay_flash_swap_with_partner=47, flashloan_quote/return_flashloan_quote=27,
+borrow_flashloan_base/return_flashloan_base=24, flash_swap/repay_flash_swap=16,
+borrow_flashloan_quote/repay_flash_swap=12, … deepbook_flash_borrow_base/deepbook_flash_repay_base=2
+```
+
+A bare `flash_swap → repay_flash_swap` pair with no action in between still does not fire, by design;
+that would flag ordinary use of a flash-swap primitive. Asserted in the offline suite.
+
+## Two measurement traps hit while doing this
+
+- **A stale `dist/` prints plausible output.** `npm run build 2>&1 | tail -3` reports the exit code of
+  `tail`, not of `tsc`. That mattered twice: once when a build had genuinely failed on
+  `rules-llm.ts(126)` while I was already reading investigator output from the *previous* binary — it
+  looked correct and was stale — and once when an error appeared in a piped build log that a clean
+  re-run did not reproduce, which is a bad reason to trust either result. Every build check from here
+  on is `>file 2>&1; echo EXIT=$?`, and the claim being tested is re-checked against the compiled
+  file, not against the last run.
+- **`cp` is aliased to `-i` here.** A `cp` meant to restore a file prompted, got no input, and did
+  nothing — silently leaving `dist/` on the pre-change detector. Restoring state is verified by
+  grepping the file afterwards, not by assuming the copy happened.

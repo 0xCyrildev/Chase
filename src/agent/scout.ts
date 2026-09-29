@@ -9,7 +9,12 @@ import {
 import { runAnalysis } from "../commands/analyze.js";
 import { parseTarget, traceTouchesTarget } from "../lib/target.js";
 import { triage } from "../triage/index.js";
-import { investigate, InvestigationResult } from "./investigator.js";
+import {
+  investigate,
+  InvestigationInput,
+  InvestigationOutcome,
+  InvestigationResult,
+} from "./investigator.js";
 
 export interface ScoutOptions {
   dryRun?: boolean;
@@ -41,6 +46,8 @@ export interface SummaryOutcome {
 export interface ScoutLLM {
   decide(input: ScoutDecisionInput): Promise<ScoutDecision>;
   summarize(input: ScoutSummaryInput): Promise<SummaryOutcome>;
+  /** The reading asked of an escalated finding, given the evidence in the transaction itself. */
+  investigate(input: InvestigationInput): Promise<InvestigationOutcome>;
 }
 
 export interface ScoutSummaryInput {
@@ -205,7 +212,7 @@ export async function scout(
 
   if (opts.triage !== false && findings.length > 0) {
     await triageFindings(findings, network, budget);
-    await investigateFindings(findings, network, budget);
+    await investigateFindings(findings, network, budget, llm, verbose);
   }
 
   coverage.startCheckpoint = seqMin === null ? null : seqMin.toString();
@@ -317,15 +324,36 @@ async function triageFindings(
 async function investigateFindings(
   findings: TriagedScanResult[],
   network: "mainnet" | "testnet" | "devnet",
-  budget: Budget
+  budget: Budget,
+  llm: ScoutLLM,
+  verbose: boolean
 ): Promise<void> {
   for (const finding of findings) {
     if (finding.tier !== "P0" && finding.tier !== "P1" && finding.tier !== "P2") continue;
-    if (budget.remaining().rpc < 4) break;
+    // One read, not four: triage already analyzed this digest, so the trace is in the cache, and the
+    // violations are carried on the finding rather than re-derived.
+    if (budget.remaining().rpc < 1) {
+      finding.investigationError = "investigation not attempted: RPC budget exhausted";
+      if (verbose) {
+        console.error(`[scout] not investigating ${finding.digest.slice(0, 12)}…: rpc budget exhausted`);
+      }
+      continue;
+    }
+    if (budget.remaining().llm < 1) {
+      // A reading is a decision-layer call. Out of that budget it must be named as unspent rather
+      // than quietly skipped — an escalated finding with no verdict reads like a benign one.
+      finding.investigationError = "investigation not attempted: LLM budget exhausted";
+      continue;
+    }
 
     try {
-      finding.investigation = await investigate(finding, network);
-      budget.spendRpc(3);
+      finding.investigation = await investigate(finding, network, (input) => llm.investigate(input));
+      budget.spendRpc();
+      // Only a model reading spends the LLM budget. Charging a deterministic answer as if a
+      // provider had been called is how a rules-mode run could starve its own investigator.
+      if (finding.investigation.source === "model") {
+        chargeLlm(budget, finding.investigation.tokens);
+      }
     } catch (err: any) {
       finding.investigationError = `investigation failed: ${String(err?.message ?? err).slice(0, 200)}`;
     }
@@ -531,6 +559,7 @@ async function runScanPass(
             type: v.type,
             severity: v.severity,
             message: v.message,
+            evidence: v.evidence,
           })),
         });
       }
@@ -585,11 +614,11 @@ async function runScanPass(
 
 /**
  * Calls to leave unspent so what was found can still be judged. Triage resolves one digest per
- * finding (its trace is already cached) and an escalated finding costs the investigator a fetch on
- * top, so a scan that spends everything returns findings with no tier — which is how the scout's
- * results were being lost behind its own budget.
+ * finding (its trace is already cached) and an escalated finding costs one more read for the
+ * investigator, so a scan that spends everything returns findings with no tier — which is how the
+ * scout's results were being lost behind its own budget.
  */
 function triageReserve(pendingFindings: number, triageEnabled: boolean): number {
   if (!triageEnabled) return 1;
-  return 1 + (pendingFindings > 0 ? pendingFindings * 3 : 2);
+  return 1 + (pendingFindings > 0 ? pendingFindings * 2 : 2);
 }

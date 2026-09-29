@@ -344,9 +344,8 @@ routing. Treat as a triage signal, not a verdict.
 
 ### flash-loan-shaped
 
-Flags PTBs that call a function matching borrow/flash_loan keywords,
-followed by a DeFi action (swap, liquidate, arbitrage), followed by a
-function matching repay/return_flash keywords.
+Flags PTBs that call a function matching borrow/flash keywords, followed by a DeFi action (swap,
+liquidate, arbitrage), followed by a function matching repay/return keywords.
 
 **Severity:** medium
 
@@ -355,7 +354,25 @@ function matching repay/return_flash keywords.
 `test-cases/synthetic-leak/sources/flash.move`.
 
 **Limitation:** name-based. Legitimate protocols that match the borrow/
-action/repay keyword sequence will trip this. Treat as a triage signal.
+action/repay keyword sequence will trip this. Treat as a triage signal. It also needs an action
+*between* the borrow and the repay, so a bare `flash_swap` → `repay_flash_swap` pair with no
+ intervening swap does not fire — asserted in the offline suite.
+
+**A gap this detector had, and what closing it cost.** The borrow list omitted `flash_swap`, which is
+Cetus's borrow-side entry point (`flash_swap` … `repay_flash_swap`), so that idiom read as three
+unrelated calls. It was found by reading an escalated transaction on live mainnet traffic — the
+investigator listed `pool::flash_swap` at cmd[11] while `FLASH_LOAN_SHAPED` stayed silent. Measured
+over the 6,502 cached mainnet traces (`node scripts/corpus-report.mjs`, offline, no RPC):
+
+| | before | after |
+|---|---|---|
+| `FLASH_LOAN_SHAPED` findings | 90 | 154 |
+| transactions with any finding | 652 (10.0%) | 707 (10.9%) |
+| high-severity findings | 16 | 16 |
+| worst tier per transaction | P1=4 P3=277 NOISE=371 | P1=4 P3=335 NOISE=371 |
+
+Every added fire landed at P3. The manual-review queue did not move, which is the trade worth
+making: a pattern that was invisible is now visible at the lowest useful tier.
 
 ### capability-transfer
 
@@ -531,21 +548,66 @@ Covered:  seq n/a-n/a (0 wide) | 7 listed | 7 analyzed | 0 no target call | 0 sy
 Coverage: complete — every named transaction reached (no checkpoint sweep was performed)
 Findings: 7
   9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg [P0] -> ESCALATE
-      investigator: suspicious — high-confidence pattern
-        Triage assigned tier P0. Multiple high-confidence signals or a critical severity violation.
+      investigator: suspicious — MUTABLE_REFERENCE_RETURNED (rules layer, not a model)
+        read: 1 cmds, 1 pkgs, top 0x101721… ×1, reverted, movement 0x4e7a16… -1023104 sui::SUI | MUTABLE_REFERENCE_RETURNED [0x101721…::leak::leak_mut]
+        Signals that do not rest on a function name: MUTABLE_REFERENCE_RETURNED. Name-matched alongside them: none. Check the evidence line against the transaction before acting on this.
       HIGH MUTABLE_REFERENCE_RETURNED — 0x1017…::leak::leak_mut returns a mutable reference to the calling transaction; no other non-framework package is invoked in this PTB
   AyBucbogeLhR895L5SDyYucPwsA3gJLcmNn84krjiGEV [P1] -> MANUAL_REVIEW
-      investigator: suspicious — high-severity pattern
+      investigator: suspicious — CAPABILITY_TRANSFER (rules layer, not a model)
+        read: 1 cmds, 1 pkgs, top 0xc28860… ×1, succeeded, movement 0x4e7a16… -1026752 sui::SUI, 1 transfer(s) | CAPABILITY_TRANSFER [coin::TreasuryCap<0xc28860daa55e…]
+        … (reasoning elided)
       HIGH CAPABILITY_TRANSFER — TreasuryCap transferred to 0x0000000000…
   7Y3T5H7oXRhG1vjhnAERiseYW6tY4XndAfHSrrbVwKT2 [P2] -> MANUAL_REVIEW
-      investigator: suspicious — high-severity pattern
+      investigator: needs-review — name match only (rules layer, not a model)
+        read: 2 cmds, 1 pkgs, top 0xe202f2… ×2, succeeded, movement 0x4e7a16… -1036936 sui::SUI | ORACLE_MANIPULATION_SUSPECTED [0xe202f2…::oracle::update_price, 0xe202f2…::oracle::swap]
+        Every high-severity signal here fired on a function name: ORACLE_MANIPULATION_SUSPECTED. A name match is not a state change — read the left-hand function of each pair to check whether it writes a value the right-hand call consumes. Nothing here is evidence either way.
   GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd [P3] -> MANUAL_REVIEW
       MEDIUM REENTRANCY_PATTERN — hop::first re-entered at cmd[2] after call to hop::second
-  … (3 further findings at P3/NOISE, elided)
+  … (3 further findings — 2 at P3, 1 at NOISE — elided)
 ```
 
 The escalation threshold is P0–P2. A report that investigated everything would
-say nothing about which findings it thought mattered.
+say nothing about which findings it thought mattered — so the `P3` above is
+tiered and deliberately left unread.
+
+### What an investigation adds
+
+Triage scores a transaction by counting violations. An investigation reads one:
+a trace fetch, then the calls in order, the packages involved, the largest coin
+movement, what changed hands, and — the part that settles arguments — the exact
+names each high-severity signal fired on. Identical firings collapse into one
+counted signal, because a 28-command PTB that trips the oracle heuristic three
+times on the same pair of functions has one fact to report, not three.
+
+The verdict comes from the decision layer, and the layer is always named:
+`(rules layer, not a model)`, `(read by <model>)`, or
+`[DEGRADED: not a model reading]`. The deterministic layer is not allowed to
+sound like a judgement it cannot make, so where every high-severity signal came
+from a function-name match — the documented false-positive surface, and what
+most organic escalations turn out to be — it answers `needs-review` and names
+what to read next, instead of calling a transaction suspicious because its tier
+said so.
+
+Asked of a model over the same evidence, the reading is a different kind of
+sentence. From a live mainnet transaction the rules layer had deferred:
+
+```
+investigator: suspicious — oracle price update followed by flash swap and repayment (read by poolside/laguna-s-2.1:free)
+  read: 29 cmds, 5 pkgs, top 0x000000… ×10, succeeded, movement 0xd2c6e3… -4199388 sui::SUI | ORACLE_MANIPULATION_SUSPECTED×3 [0xe48b33…::alpha_lending::update_price, 0x25ebb9…::pool::flash_swap]
+  The transaction calls alpha_lending::update_price at cmd[4], cmd[7], and cmd[10], each
+  immediately followed by oracle::get_price_info and type_name::get, then executes
+  pool::flash_swap at cmd[11] and cmd[14], with pool::repay_flash_swap at cmd[17] and cmd[27].
+  … (the sentence continues; it runs to four)
+```
+
+Two things follow from that pair. The layers can disagree on identical evidence,
+which is exactly why the source is printed; and a model's sentence is a
+hypothesis about commands it can see, not a verdict on code it cannot — the
+evidence contains no function signatures and no arguments, so *who controls the
+price* remains unanswered. What that reading did contribute was the missing
+pattern: `pool::flash_swap` sitting in the evidence while `FLASH_LOAN_SHAPED`
+stayed silent, which is how the borrow keyword list came to be fixed
+(see [flash-loan-shaped](#flash-loan-shaped)).
 
 `--mode` picks the decision layer and defaults to `rules`, so a hunt is
 reproducible with no API key and no spend. `--mode real` asks the configured
@@ -555,14 +617,18 @@ which it was: a fallback decision prints
 `(generated by the fallback, not by the model)`.
 
 The scan deliberately stops short of its own budget. Findings are only useful
-once triaged, and an escalation costs the investigator another fetch, so the
-loop reserves calls for what it has already found instead of spending the last
-call on one more transaction. An untiered finding is a worse result than a
-shorter scan, and the run says so when it stops for that reason:
+once triaged, and triage costs one call per finding with one more read for each
+that escalates, so the loop reserves calls for what it has already found instead
+of spending the last call on one more transaction. An untiered finding is a worse
+result than a shorter scan, and the run says so when it stops for that reason:
 
 ```
-[scout] stopping pass: 10 rpc left, 10 reserved for 3 finding(s)
+[scout] stopping pass: 9 rpc left, 11 held back for judgement of 5 finding(s)
+[scout] iteration 1: 5 findings from 5/7 txs (range unread)
 ```
+
+That run's report then says `Coverage: INCOMPLETE — 2 of 7 listed txs not
+reached`, and the two transactions it never got to are named rather than absent.
 
 Coverage is reported rather than assumed. Four kinds of "nothing" are kept
 apart: no pass ran at all (`NO SCAN RAN` / `NOTHING SCANNED` — a dry-run or an
@@ -698,6 +764,21 @@ could be analyzed. It is the check that catches a retention-window change, a
 gRPC shape break, or an endpoint that stopped responding — none of which a
 fixture can see.
 
+Detection quality is measured, not asserted, and the measurement is offline:
+
+```bash
+node scripts/corpus-report.mjs after   # over whatever is in the trace cache
+```
+
+It runs the full invariant + triage pipeline over every trace in the local cache
+(`~/.cache/chase/<network>`), with history disabled so two runs are comparable, and
+prints the flag rate, the worst tier per transaction, and the per-type breakdown. No
+RPC, and it repeats exactly. This is how a detector change gets priced: adding
+`flash_swap` to the borrow keywords moved `FLASH_LOAN_SHAPED` from 90 to 154 findings
+and the flag rate from 10.0% to 10.9% across 6,502 cached mainnet transactions, while
+high-severity findings stayed at 16 and the P1 count stayed at 4 — every added fire
+landed at P3.
+
 Nine cases:
 
 - **mainnet** - clean order cancel, no violations
@@ -767,6 +848,16 @@ sui client publish --gas-budget 100000000
 - **`oracle-pattern`, `flash-loan-shaped`, and `capability-transfer` are
   name-based.** Legitimate protocols that match the keyword patterns will
   trip these. Treat as triage signals, not verdicts.
+
+- **An investigation sees commands, not code.** The evidence it reads is the
+  normalized trace: call order, packages, balances, object changes, events, and
+  the names detectors matched. It has no function signatures and no call
+  arguments, so the question that usually decides a case — who can call this, and
+  what does it write — is answered by reading the Move source, not by Chase. The
+  deterministic layer therefore returns `needs-review` when a high-severity signal
+  rests on a name alone, and a model's `suspicious` on the same evidence is a
+  hypothesis with a named next read, not a finding. Both are labelled with the
+  layer that answered.
 
 - **`ownership-anomaly` produces no signal on shared-object flows.** The
   recipient must be an address owner for the check to fire.

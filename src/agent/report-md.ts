@@ -1,5 +1,46 @@
 import { AgentReport, ScanCoverage } from "./types.js";
 import { TriagedScanResult } from "./scout.js";
+import { InvestigationEvidence, InvestigationSource } from "./investigator.js";
+
+/**
+ * Which layer formed a reading. A rules table and a model's judgement are not the same statement,
+ * and a reader skimming tiers must never have to guess which one they are looking at.
+ */
+export function investigationProvenance(inv?: {
+  source?: InvestigationSource;
+  model?: string;
+}): string {
+  switch (inv?.source) {
+    case "model":
+      return inv.model ? ` (read by ${inv.model})` : "";
+    case "rules":
+      return " (rules layer, not a model)";
+    case "stub":
+      return " (stub response, not a judgement)";
+    case "fallback":
+    case undefined:
+      return " [DEGRADED: not a model reading]";
+  }
+}
+
+/** What the investigator looked at, in one line, so a verdict can be checked rather than trusted. */
+export function evidenceLine(e?: InvestigationEvidence): string | null {
+  if (!e) return null;
+  if (e.commandCount === 0) {
+    return e.notes[0] ? `read nothing: ${e.notes[0]}` : "read nothing: no programmable commands";
+  }
+  const bits = [`${e.commandCount} cmds`, `${e.packages.length} pkgs`];
+  if (e.packages[0]) bits.push(`top ${e.packages[0].package} ×${e.packages[0].calls}`);
+  bits.push(e.success ? "succeeded" : "reverted");
+  if (e.movements[0]) bits.push(`movement ${e.movements[0]}`);
+  if (e.transfers.length) bits.push(`${e.transfers.length} transfer(s)`);
+  const line = `read: ${bits.join(", ")}`;
+  const signals = e.signals.map(
+    (s) =>
+      `${s.type}${s.count > 1 ? `×${s.count}` : ""} [${s.matched.length ? s.matched.join(", ") : "no names recorded"}]`
+  );
+  return signals.length > 0 ? `${line} | ${signals.join("; ")}` : line;
+}
 
 export function coverageSpan(c: ScanCoverage): number | null {
   if (!c.startCheckpoint || !c.endCheckpoint) return null;
@@ -102,8 +143,10 @@ export function toMarkdown(report: AgentReport): string {
       if (f.investigationError) lines.push(`- **Investigation problem:** ${f.investigationError}`);
       if (f.investigation) {
         lines.push(
-          `- **Investigator:** ${f.investigation.verdict} — ${f.investigation.hypothesis}`
+          `- **Investigator:** ${f.investigation.verdict} — ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
         );
+        const evidence = evidenceLine(f.investigation.evidence);
+        if (evidence) lines.push(`  - ${evidence}`);
         if (f.investigation.reasoning) {
           lines.push(`  - ${f.investigation.reasoning}`);
         }

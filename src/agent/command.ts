@@ -7,7 +7,13 @@ import { RealLLM } from "./llm.js";
 import { StubLLM } from "./stub-llm.js";
 import { RuleBasedLLM } from "./rules-llm.js";
 import { BudgetExceeded } from "./budget.js";
-import { toMarkdown, coverageCaveat, coverageSpan } from "./report-md.js";
+import {
+  toMarkdown,
+  coverageCaveat,
+  coverageSpan,
+  investigationProvenance,
+  evidenceLine,
+} from "./report-md.js";
 import { printBanner } from "../lib/banner.js";
 import { reportError } from "../lib/error.js";
 import { Network, resolveNetwork } from "../commands/analyze.js";
@@ -173,7 +179,11 @@ function printHumanReport(report: any, mode: string): void {
       // The verdict was being printed for markdown only, so the escalation most people actually
       // look at was invisible in the terminal.
       if (f.investigation) {
-        console.log(`      investigator: ${f.investigation.verdict} — ${f.investigation.hypothesis}`);
+        console.log(
+          `      investigator: ${f.investigation.verdict} — ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
+        );
+        const evidence = evidenceLine(f.investigation.evidence);
+        if (evidence) console.log(`        ${evidence}`);
         if (f.investigation.reasoning) console.log(`        ${f.investigation.reasoning}`);
       }
       for (const v of f.violations ?? []) {

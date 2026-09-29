@@ -1,6 +1,10 @@
 import { InvariantChecker, SuiTransactionTrace, Violation } from "../lib/types.js";
 
-const BORROW_KEYWORDS = ["borrow", "flash_loan", "flashloan", "loan"];
+// "flash_swap" is Cetus's borrow-side entry point (flash_swap … repay_flash_swap) and it appears on
+// real mainnet volume; without it the detector reads a flash loan as three unrelated calls, because
+// "flash_swap" matches ACTION_KEYWORDS only. Measured 2026-09-29 on organic traffic, that is the
+// shape an escalated transaction had while FLASH_LOAN_SHAPED stayed silent.
+const BORROW_KEYWORDS = ["borrow", "flash_loan", "flashloan", "flash_swap", "loan"];
 const REPAY_KEYWORDS = ["repay", "return_flash", "return_loan", "flash_repay"];
 const ACTION_KEYWORDS = ["swap", "liquidate", "arbitrage", "trade", "execute"];
 

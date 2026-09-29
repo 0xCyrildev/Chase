@@ -1,4 +1,5 @@
 import { ScoutLLM, ScoutDecisionInput, ScoutSummaryInput, SummaryOutcome } from "./scout.js";
+import { InvestigationInput, InvestigationOutcome } from "./investigator.js";
 import { ScoutDecision } from "./types.js";
 import { coverageCaveat } from "./report-md.js";
 
@@ -41,5 +42,15 @@ export class StubLLM implements ScoutLLM {
       `Decisions: ${input.decisions.map((d) => d.action).join(" -> ")}`,
     ];
     return { text: lines.join("\n"), tokens: 0 };
+  }
+
+  async investigate(input: InvestigationInput): Promise<InvestigationOutcome> {
+    return {
+      verdict: "suspicious",
+      hypothesis: "stub: fixed response",
+      reasoning: `stub reading for ${input.digest.slice(0, 12)}… — ${input.evidence.commandCount} command(s), ${input.violations.length} violation(s), never a judgement`,
+      source: "stub",
+      tokens: 0,
+    };
   }
 }

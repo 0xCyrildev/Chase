@@ -9,6 +9,10 @@ import {
   ScoutSummaryInput,
   SummaryOutcome,
 } from "./scout.js";
+import {
+  InvestigationInput,
+  InvestigationOutcome,
+} from "./investigator.js";
 import { ScoutDecision } from "./types.js";
 
 const run = promisify(execFile);
@@ -64,6 +68,49 @@ Be factual. Do not speculate about intent. If findings are all benign-pattern ma
 findings are novel, say so. Never claim to have found an exploit - Chase finds patterns, not exploits.
 
 Respond with plain text. No JSON, no markdown.`;
+
+const INVESTIGATION_SYSTEM_PROMPT = `You are the investigator for Chase, a Sui Move transaction analyzer. A transaction
+was escalated by triage; you are the second look, not the first score.
+
+You receive JSON: the digest, triage's tier/score/nextAction, the violations that produced them, and
+evidence read from the transaction itself — the PTB commands in order, the packages called, the names
+each high-severity signal matched on ("signals"), coin movements, object transfers, and events.
+
+Say what the transaction appears to be doing, and whether the pattern that escalated it survives
+contact with that evidence.
+
+Verdicts:
+- "benign" — the evidence shows an ordinary shape, which most escalations do. A price-feed
+  "update_price"/"refresh" call followed later by a "swap"/"withdraw" is the documented
+  false-positive shape of the oracle heuristic: that detector matches function *names*, so a protocol
+  refreshing its own feed before a user withdraws fires it. Say so plainly when that is what you see.
+- "suspicious" — the evidence shows a structure that should not be reachable: an oracle-flavoured call
+  immediately followed in the same PTB by a trade against that value, value leaving to the sender or
+  to a freshly created object, an owner-cap moved away from its signer while still being used. Name
+  the commands that make it so, and keep the claim to what the commands are, not what they write.
+- "needs-review" — the evidence cannot answer the question. Unresolved signatures, an unreadable
+  trace, a name you do not recognise doing something financial, or a verdict that turns on who
+  controls a value the evidence cannot show. Do not guess.
+
+Rules:
+1. Reason only from the evidence given. Never invent a package id, module, function, address or
+   amount that is not in it.
+2. Name what you rely on — quote the command or signal your verdict rests on.
+3. The evidence has no function signatures and no call arguments. So never state who controls a
+   value, or what a function writes, as if you had read it. If that is what settles the question,
+   answer "needs-review" and name the function a person must read.
+4. Chase finds patterns, not exploits. Do not describe anything as an exploit, a theft or a confirmed
+   vulnerability, and do not assign a severity.
+5. "hypothesis" is a short handle for the shape you saw, e.g. "feed refresh before withdrawal".
+6. "reasoning" is 2-4 sentences: what the transaction does, then why the escalated signal does or
+   does not survive it.
+
+Respond with JSON only. No prose before or after. Schema:
+{
+  "verdict": "benign" | "suspicious" | "needs-review",
+  "hypothesis": "short phrase",
+  "reasoning": "2-4 sentences"
+}`;
 
 interface LlmConfig {
   apiKey: string;
@@ -269,6 +316,39 @@ export function parseDecision(text: string): ScoutDecision | null {
   return decision;
 }
 
+const VERDICTS = ["benign", "suspicious", "needs-review"] as const;
+
+/**
+ * A reply that cannot be parsed is not a verdict. Returning null makes the caller say the reading
+ * failed, rather than defaulting to "suspicious" (which would cry wolf) or "benign" (which would
+ * bury a finding).
+ */
+export function parseInvestigation(text: string): InvestigationOutcome | null {
+  if (!text) return null;
+  const candidate = extractJsonObject(text);
+  if (!candidate) return null;
+
+  let obj: any;
+  try {
+    obj = JSON.parse(candidate);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object") return null;
+  if (typeof obj.verdict !== "string" || !VERDICTS.includes(obj.verdict as any)) return null;
+
+  const hypothesis =
+    typeof obj.hypothesis === "string" && obj.hypothesis.trim()
+      ? obj.hypothesis.trim().slice(0, 120)
+      : "unlabelled";
+  const reasoning =
+    typeof obj.reasoning === "string" && obj.reasoning.trim()
+      ? obj.reasoning.trim().slice(0, 1200)
+      : "the model returned a verdict without a reason";
+
+  return { verdict: obj.verdict, hypothesis, reasoning, source: "model" };
+}
+
 export class RealLLM implements ScoutLLM {
   private config: LlmConfig | null;
 
@@ -359,6 +439,64 @@ export class RealLLM implements ScoutLLM {
         text: `summary unavailable: LLM unavailable (${String(err?.message ?? err).slice(0, 160)})`,
         tokens: 0,
         degraded: true,
+      };
+    }
+  }
+
+  async investigate(input: InvestigationInput): Promise<InvestigationOutcome> {
+    if (!this.config) {
+      return {
+        verdict: "needs-review",
+        hypothesis: "not read",
+        reasoning: "no LLM configured (LLM_API_KEY is not set), so no model read this transaction",
+        source: "fallback",
+        degraded: true,
+        tokens: 0,
+      };
+    }
+
+    const userPrompt = JSON.stringify(
+      {
+        digest: input.digest,
+        network: input.network,
+        tier: input.tier,
+        score: input.score,
+        nextAction: input.action,
+        violations: input.violations.map((v) => ({
+          type: v.type,
+          severity: v.severity,
+          message: v.message,
+        })),
+        evidence: input.evidence,
+      },
+      null,
+      2
+    );
+
+    try {
+      const reply = await callLlm(this.config, INVESTIGATION_SYSTEM_PROMPT, userPrompt, 1200, true);
+      const parsed = parseInvestigation(reply.content);
+      if (!parsed) {
+        return {
+          verdict: "needs-review",
+          hypothesis: "unread",
+          reasoning: `model gave no parseable reading: ${reply.content.slice(0, 160)}`,
+          source: "fallback",
+          degraded: true,
+          tokens: reply.tokens,
+        };
+      }
+      parsed.tokens = reply.tokens;
+      parsed.model = this.config.model;
+      return parsed;
+    } catch (err: any) {
+      return {
+        verdict: "needs-review",
+        hypothesis: "unread",
+        reasoning: `no model reading: ${String(err?.message ?? err).slice(0, 160)}`,
+        source: "fallback",
+        degraded: true,
+        tokens: 0,
       };
     }
   }

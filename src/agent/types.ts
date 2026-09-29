@@ -50,6 +50,11 @@ export interface ScanResult {
     type: string;
     severity: string;
     message: string;
+    /**
+     * What the detector keyed off — the commands, modules or coin types behind the message. Kept so
+     * an escalated finding can be read against its own evidence instead of only against its tier.
+     */
+    evidence?: Record<string, unknown>;
   }>;
 }
 
