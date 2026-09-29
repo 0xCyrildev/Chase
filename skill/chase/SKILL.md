@@ -26,12 +26,25 @@ package is safe; it is proof that this transaction did not do those things.
 
 ## Setup
 
+Installed globally, one time:
+
 ```bash
-git clone https://github.com/0xCyrildev/Chase.git && cd Chase && npm install
+npm install -g @zeroxcyril/chase
+chase analyze <TX_DIGEST>
 ```
 
-No credentials are needed to analyze transactions — the default network is mainnet and the public gRPC
-endpoint is used directly.
+Or run it per invocation, with nothing installed:
+
+```bash
+npx -y @zeroxcyril/chase analyze <TX_DIGEST>
+npx -y -p @zeroxcyril/chase chase triage <TX_DIGEST>
+npx -y -p @zeroxcyril/chase chase-hunt --target <package_id> --mode rules
+```
+
+No credentials are needed to analyze transactions — the default network is
+mainnet and the public gRPC endpoint is used directly. From a source checkout,
+`git clone` + `npm install` works identically, and the `npx tsx src/...` forms
+below apply.
 
 Optional layers read `LLM_API_KEY` / `LLM_ENDPOINT` / `LLM_MODEL` (any OpenAI-compatible endpoint) and
 are needed only for `--explain` prose and for `chase_hunt` / `chase hunt` with `mode: "real"`.
@@ -96,9 +109,11 @@ Every layer keeps its own uncertainty visible. Do not flatten it.
 
 - **`INCOMPLETE` in coverage** means part of the range was never reached. Read it before reading
   `0 findings`.
-- **Three different nothings.** A hunt distinguishes: the range held no transactions; the range held
-  transactions but none matched the target (`EMPTY AGAINST THE TARGET, not a clean scan`); and the target
-  was reached and stayed clean.
+- **Four different nothings.** A hunt distinguishes: no pass ran at all (`NO SCAN RAN` /
+  `NOTHING SCANNED` — a dry-run or an exhausted budget is not evidence about a target); the range held
+  no transactions (`EMPTY SCAN`); the range held transactions but none matched the target
+  (`EMPTY AGAINST THE TARGET, not a clean scan`); and the target was reached and stayed clean.
+  Do not collapse the first three into "clean".
 - **`skipped[]` in a triage report** names the digests that could not be analyzed. A report covering 2 of
   4 inputs says so.
 - **`[DEGRADED: not a model decision]`** marks a fallback decision; a fallback summary prints
