@@ -1,5 +1,25 @@
 import fs from "node:fs";
 import { Mandate } from "./types.js";
+import { isDigest } from "../lib/digest.js";
+
+/**
+ * A digest list is one per line, `#` for comments — the same shape `chase batch` accepts, so an
+ * analyst can pipe one into the other without a converter.
+ */
+export function readDigestList(file: string, label = "--txs"): string[] {
+  if (!fs.existsSync(file)) throw new Error(`${label} file not found: ${file}`);
+  const lines = fs
+    .readFileSync(file, "utf8")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
+  if (lines.length === 0) throw new Error(`${label} file holds no digests: ${file}`);
+  const bad = lines.filter((l) => !isDigest(l));
+  if (bad.length > 0) {
+    throw new Error(`${label} file contains ${bad.length} invalid digest(s), e.g. ${bad[0].slice(0, 60)}`);
+  }
+  return lines;
+}
 
 const DEFAULT_BUDGET = {
   maxRpcCalls: 200,
@@ -80,6 +100,15 @@ export function validateMandate(m: Mandate): Mandate {
   if (!m.target || typeof m.target !== "string") {
     throw new Error("Mandate requires a target (package ID or name)");
   }
+  if (m.txs !== undefined) {
+    if (!Array.isArray(m.txs) || m.txs.length === 0) {
+      throw new Error("Mandate txs must be a non-empty list of digests");
+    }
+    const bad = m.txs.filter((d) => !isDigest(d));
+    if (bad.length > 0) {
+      throw new Error(`Mandate txs contains ${bad.length} invalid digest(s), e.g. ${String(bad[0]).slice(0, 60)}`);
+    }
+  }
   m.checkpoints = positiveInt(m.checkpoints, "Mandate checkpoints");
   m.budget.maxRpcCalls = positiveInt(m.budget.maxRpcCalls, "Mandate budget.maxRpcCalls");
   m.budget.maxLlmCalls = positiveInt(m.budget.maxLlmCalls, "Mandate budget.maxLlmCalls");
@@ -102,7 +131,8 @@ export function validateMandate(m: Mandate): Mandate {
 }
 
 export function mandateFromArgs(args: Record<string, string | undefined>): Mandate {
-  const target = args.target ?? "";
+  const txs = args.txs ? readDigestList(args.txs) : undefined;
+  const target = args.target ?? (txs ? `explicit:${txs.length} tx(s)` : "");
   const checkpoints = optionalPositiveInt(args.checkpoints, DEFAULT_MANDATE.checkpoints, "--checkpoints");
   const goal = args.goal ?? DEFAULT_MANDATE.goal;
 

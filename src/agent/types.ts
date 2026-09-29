@@ -2,6 +2,13 @@ export interface Mandate {
   target: string;
   checkpoints: number;
   goal: string;
+  /**
+   * Analyze exactly these transactions instead of sweeping checkpoints. One pass, no listing, no
+   * sampling — the difference between "I watched a window and saw nothing" and "I looked at the
+   * digest you actually care about", and the only supported way to drive the escalation path on a
+   * known transaction.
+   */
+  txs?: string[];
   budget: {
     maxRpcCalls: number;
     maxLlmCalls: number;
