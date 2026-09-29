@@ -66,8 +66,8 @@ const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 3000;
 
 function buildRequest(model: string, system: string, user: string, maxTokens: number, signal: AbortSignal) {
-  const apiKey = process.env.DEEPSEEK_API_KEY!;
-  const endpoint = process.env.DEEPSEEK_ENDPOINT ?? DEFAULT_ENDPOINT;
+  const apiKey = process.env.LLM_API_KEY!;
+  const endpoint = process.env.LLM_ENDPOINT ?? DEFAULT_ENDPOINT;
   return {
     endpoint,
     init: {
@@ -94,17 +94,17 @@ function buildRequest(model: string, system: string, user: string, maxTokens: nu
 }
 
 export async function explain(finding: TriagedFinding): Promise<TriagedFinding> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) {
     return {
       ...finding,
-      explanation: "(DEEPSEEK_API_KEY not set - explanation skipped)",
+      explanation: "(LLM_API_KEY not set - explanation skipped)",
       nextAction: fallbackAction(finding.tier),
       confidence: "low",
     };
   }
 
-  const model = process.env.DEEPSEEK_MODEL ?? DEFAULT_MODEL;
+  const model = process.env.LLM_MODEL ?? DEFAULT_MODEL;
   const userPrompt = JSON.stringify(
     {
       digest: finding.digest,
@@ -204,17 +204,17 @@ export async function explain(finding: TriagedFinding): Promise<TriagedFinding> 
 export async function explainBatch(findings: TriagedFinding[]): Promise<TriagedFinding[]> {
   if (findings.length === 0) return findings;
 
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.LLM_API_KEY;
   if (!apiKey) {
     return findings.map((f) => ({
       ...f,
-      explanation: "(DEEPSEEK_API_KEY not set - explanation skipped)",
+      explanation: "(LLM_API_KEY not set - explanation skipped)",
       nextAction: fallbackAction(f.tier),
       confidence: "low",
     }));
   }
 
-  const model = process.env.DEEPSEEK_MODEL ?? DEFAULT_MODEL;
+  const model = process.env.LLM_MODEL ?? DEFAULT_MODEL;
 
   const payload = findings.map((f, i) => ({
     index: i,

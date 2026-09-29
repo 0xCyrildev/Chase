@@ -6,8 +6,11 @@ import { analyzeCommand } from "./commands/analyze.js";
 import { batchCommand } from "./commands/batch.js";
 import { watchCommand } from "./commands/watch.js";
 import { printBanner } from "./lib/banner.js";
+import { VERSION } from "./lib/version.js";
 import { clearCache, cacheDir } from "./lib/cache.js";
 import { clearSignatureCache, signatureCacheSize } from "./lib/sigcache.js";
+import { registerTriage } from "./triage/command.js";
+import { registerHunt } from "./agent/command.js";
 
 dotenv.config({ quiet: true });
 
@@ -16,7 +19,7 @@ const program = new Command();
 program
   .name("chase")
   .description("Chase — dynamic analysis tool for Sui Move transactions")
-  .version("0.1.0");
+  .version(VERSION);
 
 program
   .command("analyze <digest>")
@@ -25,6 +28,7 @@ program
   .option("-o, --out <file>", "Write report to file")
   .option("--debug", "Print resolved commands, balance changes, and events to stderr")
   .option("--no-cache", "Bypass the on-disk trace cache")
+  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet); defaults to $SUI_NETWORK, then mainnet")
   .action(async (digest, opts) => {
     if (!opts.json) printBanner();
     try {
@@ -40,7 +44,7 @@ program
   .description("Analyze multiple digests from a file (one per line, # for comments)")
   .option("-o, --out <file>", "Write NDJSON results to file")
   .option("-c, --concurrency <n>", "Parallel fetch limit (default 5, max 20)")
-  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet)", "mainnet")
+  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet); defaults to $SUI_NETWORK, then mainnet")
   .action(async (file, opts) => {
     printBanner();
     try {
@@ -57,7 +61,7 @@ program
   .option("--from <seq>", "Starting checkpoint sequence number")
   .option("--filter <substring>", "Only report findings whose evidence matches this substring")
   .option("--limit <n>", "Stop after processing N checkpoints")
-  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet)", "mainnet")
+  .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet); defaults to $SUI_NETWORK, then mainnet")
   .action(async (opts) => {
     printBanner();
     try {
@@ -88,5 +92,8 @@ program
     console.error(`[chase] signatures cached: ${signatureCacheSize()}`);
     console.error(`[chase] use --clear to wipe, --dir to print path`);
   });
+
+program.addCommand(registerTriage(new Command("triage")));
+program.addCommand(registerHunt(new Command("hunt")));
 
 program.parseAsync(process.argv);

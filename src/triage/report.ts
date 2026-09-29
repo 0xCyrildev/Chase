@@ -1,6 +1,5 @@
 import pc from "picocolors";
 import { TriagedFinding, TriageReport, Tier, NextAction } from "./types.js";
-import { recordViolations } from "./history.js";
 
 const TIER_COLOR: Record<Tier, (s: string) => string> = {
   P0: (s) => pc.bgRed(pc.white(s)),
@@ -10,13 +9,11 @@ const TIER_COLOR: Record<Tier, (s: string) => string> = {
   NOISE: pc.gray,
 };
 
+// Deliberately pure: a run must not age its own findings, so recording happens in triage() on request.
 export function formatReport(
   findings: TriagedFinding[],
   digests: string[]
 ): TriageReport {
-  const allViolations = findings.map((f) => f.violation);
-  recordViolations(allViolations);
-
   const byTier: Record<Tier, number> = { P0: 0, P1: 0, P2: 0, P3: 0, NOISE: 0 };
   const byAction: Record<NextAction, number> = {
     DISMISS: 0,
