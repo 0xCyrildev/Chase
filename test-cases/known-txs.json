@@ -105,6 +105,38 @@
       "expectTiers": [
         "NOISE"
       ]
+    },
+    {
+      "digest": "6XZ9D9g8Jr22HmL7kMbWJ3ZjH9QqNvsvW7bc9Hbw7t7D",
+      "label": "order-book fill (mainnet, dynamic fields created, parent object named)",
+      "network": "mainnet",
+      "expectViolationTypes": [
+        "DYNAMIC_FIELD_CREATED"
+      ],
+      "expectTiers": [
+        "NOISE",
+        "NOISE",
+        "NOISE"
+      ],
+      "note": "Characterisation fixture from organic traffic, not a synthetic positive control: it proves the detector fires on real data and that three routine field creations land at NOISE/DISMISS. The message names the parent object (0x3d92883b82\u2026), which only works because owners are recorded at fetch time."
+    },
+    {
+      "digest": "HwP6khphKMt4DgHmj3ojqm7ApXDL1NyuTTTXGeRNQjYA",
+      "label": "game round teardown (mainnet, fields created and destroyed in one transaction)",
+      "network": "mainnet",
+      "expectViolationTypes": [
+        "COIN_NET_IMBALANCE",
+        "DYNAMIC_FIELD_CREATED",
+        "DYNAMIC_FIELD_DELETED"
+      ],
+      "expectTiers": [
+        "NOISE",
+        "P3",
+        "P3",
+        "P3",
+        "P3"
+      ],
+      "note": "Characterisation fixture from organic traffic. It covers the deletion path and the honest one at the same time: a destroyed field has no output owner, so its message says (unresolved, parent not recorded) rather than naming a parent it cannot see. Create+delete in one transaction is one teardown-and-replace construct, which is why the two types are corroboration-suppressed against each other."
     }
   ]
 }

@@ -386,6 +386,47 @@ check(
 // as a transfer to an address, which is a different claim than the one the field makes.
 check("an object owner never becomes a recipient", ownerAddress({ $kind: "ObjectOwner", ObjectOwner: "0xdead" }) === undefined);
 
+const { enrich: enrichReport, REPORT_ONLY_TYPES } = await import("../src/triage/enrich.js");
+const declaredTypes = new Set(
+  (await import("../src/invariants/index.js")).allInvariants.flatMap((c: any) =>
+    (c.emits ?? []).map((e: any) => e.type)
+  )
+);
+
+for (const t of REPORT_ONLY_TYPES) {
+  check(`report-only type is one a checker actually declares: ${t}`, declaredTypes.has(t));
+}
+
+const repForEnrich: any = {
+  digest: "x",
+  network: "mainnet",
+  sender: "0x1",
+  success: true,
+  violations: [
+    { type: "REENTRANCY_PATTERN", severity: "medium", message: "m" },
+    { type: "DYNAMIC_FIELD_CREATED", severity: "low", message: "f" },
+    { type: "ORACLE_MANIPULATION_SUSPECTED", severity: "high", message: "o" },
+  ],
+  detectorErrors: [],
+  skipped: [],
+  stats: { balanceChanges: 0, objectChanges: 0, ptbCommands: 0, events: 0 },
+};
+const enriched = await enrichReport(repForEnrich);
+const reRow = enriched.find((x) => x.violation.type === "REENTRANCY_PATTERN")!;
+check(
+  "a report-only shape does not raise another finding's priority",
+  !reRow.corroborating.some((v: any) => v.type === "DYNAMIC_FIELD_CREATED"),
+  JSON.stringify(reRow.corroborating.map((v: any) => v.type))
+);
+check(
+  "an ordinary independent signal still corroborates",
+  reRow.corroborating.some((v: any) => v.type === "ORACLE_MANIPULATION_SUSPECTED")
+);
+check(
+  "and a report-only finding is still escalated by what surrounds it",
+  enriched.find((x) => x.violation.type === "DYNAMIC_FIELD_CREATED")!.corroborating.length > 0
+);
+
 console.log("\nowner recording (a cached trace must answer what a live one answered)");
 
 const { outputOwnerOf } = await import("../src/lib/owner.js");
@@ -500,6 +541,11 @@ for (const key of Object.keys(modifier)) {
 
 for (const c of allInvariants) {
   check(`README documents the ${c.name} check`, readme.includes(`### ${c.name}`));
+}
+
+for (const t of owners.keys()) {
+  check(`${t} appears in the README modifier table`, new RegExp(`\\| *${t} *\\|`).test(readme),
+    "the table is what a reader trusts to explain scoring; config drift shows up here first");
 }
 
 const asserted = new Set(

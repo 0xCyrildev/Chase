@@ -48,6 +48,13 @@ export type OwnerKind =
 export interface Emission {
   type: string;
   severity: Severity;
+  /**
+   * `false` means the type is reported but never counts as corroboration for anything else.
+   * Corroboration is the mechanism that raises priority, so it should mean "a second detector
+   * independently thinks this looks off" — not "this shape also appears in 2% of ordinary
+   * traffic". A report-only type can still be escalated by stronger signals around it.
+   */
+  corroborates?: boolean;
 }
 
 export interface InvariantChecker {

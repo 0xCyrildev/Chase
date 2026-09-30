@@ -239,10 +239,10 @@ matcher was fixed.
 
 ## Invariants
 
-Chase ships with nine invariant checks. Each is intentionally conservative:
+Chase ships with ten invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
-Eight of the nine have **positive controls**: synthetic Move packages
+All ten have a fixture that asserts the detector fires: synthetic Move packages
 published to testnet that trigger each detector on demand. The two balance
 checks (`address-balance-delta`, `coin-net-imbalance`) have no clean synthetic
 trigger because the false-positive class is inherent to how gRPC surfaces
@@ -293,6 +293,24 @@ carry. The finding therefore names the candidate mechanism (the transaction's
 non-framework calls, in order) rather than claiming a leak, and the committed
 fixture is a Kriya swap where 1,934,833,427 `CERT` left the address-visible
 set with no receiving address.
+
+### dynamic-field-lifecycle
+
+Reports `0x2::dynamic_field::Field<K, V>` objects that a transaction **creates** or **deletes**,
+with the key and value types parsed out of the type string and the parent object named when the
+trace recorded an `ObjectOwner`.
+
+**Severity:** low
+
+**Measured:** 128 transactions (1.97%) create at least one field, 58 (0.89%) destroy one, 16 do
+both. Deliberately **no mutation rule**: 3,807 transactions (58.55%) touch a field object and
+14,497 of 14,816 field changes are mutations, so "a field was written" describes most of the chain
+and means nothing. Saying so beats omitting it silently.
+
+**What this is not:** the field's *key* — which field was added or removed — is not in the trace,
+and neither is the parent when the object is not owned by another object. Those are named in the
+evidence as unrecorded rather than guessed. A created or deleted field is a state change with a
+legitimate routine explanation in most cases; the finding exists so a human can ask which one.
 
 ### mutable-access
 
@@ -483,6 +501,14 @@ findings that reached P2 were Cetus flash swaps scoring "+25 corroboration (3 in
 and on the same traffic the fix moved them to P3 (top score 50 → 35) without hiding anything — see
 `reports/field-test-2026-09-29.md`.
 
+A second case, decided differently: `DYNAMIC_FIELD_CREATED` fires on 2% of mainnet transactions and
+is not a second opinion about anything — but it is genuinely orthogonal to a routing pattern, so
+declaring it an "expected overlap" would have been a lie about the construct. Detectors therefore
+declare `corroborates: false` on an emission, which means *reported, never used to raise priority*.
+Without that mechanism, shipping the dynamic-field check moved two already-P1 oracle transactions'
+reentrancy findings from P3 to P2 on the strength of a field appearing. A report-only finding can
+still be escalated by the stronger signals around it; the policy is asymmetric on purpose.
+
 Weights are in `src/triage/triage.config.json`. The confidence modifier per
 invariant reflects how reliable the invariant is:
 
@@ -492,6 +518,9 @@ invariant reflects how reliable the invariant is:
 | CAPABILITY_TRANSFER | +10 | Verified, high signal |
 | UNEXPECTED_TRANSFER | +5 | Verified, has shared-object limitation |
 | REENTRANCY_PATTERN | -10 | Verified but fires on DEX routers |
+| COIN_NET_IMBALANCE | 0 | Aggregated view of the same array; low severity keeps it out of P2 alone |
+| DYNAMIC_FIELD_CREATED | 0 | report-only: fires on 2% of traffic, so it must not raise priority |
+| DYNAMIC_FIELD_DELETED | 0 | report-only: same, 0.9% of traffic |
 | ORACLE_MANIPULATION_SUSPECTED | -15 | Name-based |
 | FLASH_LOAN_SHAPED | -5 | Name-based |
 | ADDRESS_OUTFLOW | -20 | Fires on shared-object inflows |

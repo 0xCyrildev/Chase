@@ -1,4 +1,5 @@
 import { AnalysisReport, Violation } from "../lib/types.js";
+import { allInvariants } from "../invariants/index.js";
 import { EnrichedViolation } from "./types.js";
 import { findBenignMatch } from "./benign.js";
 import { loadHistory, countSignature } from "./history.js";
@@ -43,6 +44,8 @@ function distinctDetectors(
     if (v === subject) continue;
     if (v.type === subject.type) continue;
     if (isExpectedOverlap(subject.type, v.type)) continue;
+    // A report-only shape never raises another finding's priority, in either direction.
+    if (REPORT_ONLY_TYPES.has(v.type)) continue;
     if (!byType.has(v.type)) byType.set(v.type, v);
   }
 
@@ -50,44 +53,48 @@ function distinctDetectors(
 }
 
 /**
- * Corroboration means independent detectors agreeing. These pairs describe the *same underlying
- * construct*, so agreement between them is one opinion counted twice:
- *
- * - A flash swap is `borrow → action → repay` (FLASH_LOAN_SHAPED), it calls one pool module
- *   repeatedly (REPEATED_MODULE_CALLS), and its own sequential entry/exit looks like re-entry
- *   (REENTRANCY_PATTERN). Measured on 308 live mainnet transactions, the only two findings that
- *   reached P2 were Cetus flash swaps scoring +25 corroboration from exactly this trio — 8 P2s from
- *   2 transactions, none of it independent.
- * - TreasuryCap transfers legitimately surface as unexpected transfers (the pre-existing pair).
- * - Address outflow on a shared-object swap is the same balance-scoping artifact as a composition
- *   pattern in the same PTB (the pre-existing pair).
- *
- * A real flash-loan exploit still stands on FLASH_LOAN_SHAPED alone (base 30, −5 name-based → P3)
- * and keeps any genuinely orthogonal signal: CAPABILITY_TRANSFER, MUTABLE_REFERENCE_RETURNED,
- * ORACLE_MANIPULATION_SUSPECTED and UNEXPECTED_TRANSFER are not in this list.
- */
-/**
  * Pairs that describe the *same construct*, so they are one opinion and must not corroborate each
  * other. Data rather than a function body because the test suite reads it: a typo here silently
  * re-enables the corroboration inflation this table exists to prevent.
+ *
+ * The measured history behind each pair:
+ * - A flash swap is `borrow -> action -> repay` (FLASH_LOAN_SHAPED), calls one pool module
+ *   repeatedly (REPEATED_MODULE_CALLS), and its own sequential entry/exit looks like re-entry
+ *   (REENTRANCY_PATTERN). Over 308 live mainnet transactions the only findings that reached P2 were
+ *   Cetus flash swaps scoring +25 from exactly this trio — 8 P2s from 2 transactions.
+ * - TreasuryCap transfers legitimately surface as unexpected transfers.
+ * - An address-scoped outflow on a shared-object swap is the same balance-scoping artifact as a
+ *   composition pattern in the same PTB, and COIN_NET_IMBALANCE is that same array summed instead
+ *   of read per address. Adding the summed view alongside the per-address one moved 4 transactions
+ *   from P3 to P2 before this table was widened to cover the whole swap-shape cluster.
+ *
+ * What is deliberately NOT here: the dynamic-field types. A field appearing or vanishing is not the
+ * same construct as a routing pattern — it is simply too common to be an opinion. Those declare
+ * `corroborates: false` instead, which is the honest mechanism; pairing a type against four others
+ * to mute it would be using "same construct" to mean "I'm noisy".
  */
 export const EXPECTED_OVERLAP: [string, string][] = [
   ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
   ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
-  // The same balanceChanges array read two ways: per address, and summed. Not two opinions.
   ["COIN_NET_IMBALANCE", "ADDRESS_OUTFLOW"],
-  // Measured, not assumed: shipping COIN_NET_IMBALANCE with only the pair above moved 4
-  // transactions from P3 to P2 on the 6,502-trace corpus, because it corroborated the very
-  // shape that produces it — a swap routes through pool modules repeatedly (REPEATED_MODULE_CALLS,
-  // REENTRANCY_PATTERN, FLASH_LOAN_SHAPED) while value crosses into a pool's internal balance.
-  // One swap shape, five ways of noticing it.
   ["COIN_NET_IMBALANCE", "REENTRANCY_PATTERN"],
   ["COIN_NET_IMBALANCE", "REPEATED_MODULE_CALLS"],
   ["COIN_NET_IMBALANCE", "FLASH_LOAN_SHAPED"],
+  // 16 transactions in the corpus both add and remove a field; teardown-and-replace is one
+  // construct, and create+delete must not corroborate each other.
+  ["DYNAMIC_FIELD_CREATED", "DYNAMIC_FIELD_DELETED"],
   ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
   ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
   ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],
 ];
+
+/**
+ * Types that report a shape without claiming it as independent agreement. Built from the detector
+ * declarations so there is exactly one place to change, and it is a typechecked one.
+ */
+export const REPORT_ONLY_TYPES: ReadonlySet<string> = new Set(
+  allInvariants.flatMap((c) => c.emits.filter((e) => e.corroborates === false).map((e) => e.type))
+);
 
 function isExpectedOverlap(a: string, b: string): boolean {
   return EXPECTED_OVERLAP.some(
