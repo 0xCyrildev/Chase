@@ -27,7 +27,7 @@ export const silentObjectChange: InvariantChecker = {
   name: "silent-object-change",
   description:
     "Reports a sender-held object that was mutated or destroyed while no event in the transaction came " +
-    "from the package that owns its type (not 'the transaction was silent' — 39% of traffic is)",
+    "from the package that owns its type (not that the transaction was silent, since 39% of traffic is)",
   emits: [{ type: "UNANNOUNCED_OBJECT_CHANGE", severity: "low", corroborates: false }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];

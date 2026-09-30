@@ -81,6 +81,7 @@ export async function scout(
   const decisions: ScoutDecision[] = [];
 
   const coverage: ScanCoverage = {
+    network,
     passes: 0,
     startCheckpoint: null,
     endCheckpoint: null,

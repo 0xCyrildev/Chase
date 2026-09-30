@@ -50,7 +50,7 @@ export const capabilityTransfer: InvariantChecker = {
   name: "capability-transfer",
   description:
     "Flags capability objects (TreasuryCap, AdminCap, UpgradeCap, etc.) that a transaction moves out of " +
-    "the sender's address ownership — to another address or into a non-address owner",
+    "the sender's address ownership, whether to another address or into a non-address owner",
   emits: [{ type: "CAPABILITY_TRANSFER", severity: "high" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];

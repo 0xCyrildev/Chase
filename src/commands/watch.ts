@@ -109,7 +109,7 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
       `[chase] ${how}: ${processed} checkpoint(s), ${totalFlagged}/${totalChecked} transactions flagged` +
         (unreadable.length ? `, ${unreadable.length} checkpoint(s) UNREADABLE [${unreadable.join(", ")}]` : "") +
         (empty.length ? `, ${empty.length} empty` : "") +
-        ` — cursor ${cursorState()}`
+        `, cursor ${cursorState()}`
     );
 
   process.on("SIGINT", () => {

@@ -284,7 +284,7 @@ server.tool(
     "'nothing, complete=true' for `0x2::transfer` and for a Cetus package id that 8% of the sampled " +
     "transactions demonstrably swapped through. Pass `target` with `inspect` > 0 to get a real presence " +
     "check: chase fetches that many traces and matches the package against each transaction's own calls, " +
-    "event types and object types — routed volume names the router in a top-level call, so this is the " +
+    "event types and object types. Routed volume names the router in a top-level call, so this is the " +
     "only honest way to answer 'was this called here'. The response always reports listed, inspected and " +
     "uninspected counts; a 0-match result over a partial inspection says nothing about the rest.",
   {
@@ -370,7 +370,7 @@ server.tool(
                 matchedCount: matched.length,
                 uninspected,
                 presenceClaim: !target
-                  ? "no target given — this is a listing, not a claim about any package"
+                  ? "no target given, so this is a listing and not a claim about any package"
                   : inspectN === 0
                     ? "NOT CHECKED: target given with inspect=0, so no presence claim is made"
                     : matched.length > 0

@@ -50,7 +50,7 @@ function readAll(): Record<string, CursorEntry> {
     // is the failure this whole file exists to prevent.
     console.error(
       `[chase] could not read the saved cursor (${p}): ${err?.message ?? err}. ` +
-        `Starting fresh — the gap since your last run is not covered.`
+        `Starting fresh, and the gap since your last run is not covered.`
     );
     return {};
   }

@@ -20,6 +20,13 @@ export interface Mandate {
 }
 
 export interface ScanCoverage {
+  /**
+   * Which chain this scan read. A `--txs` list spanning two networks is analysed entirely on the
+   * mandate's single network, and every digest from the other one fails as `not found`, which looks
+   * like retention and is not. Coverage that cannot say which chain it looked at cannot explain
+   * its own failures.
+   */
+  network?: "mainnet" | "testnet" | "devnet";
   passes: number;
   startCheckpoint: string | null;
   endCheckpoint: string | null;

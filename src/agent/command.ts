@@ -28,7 +28,7 @@ type LlmMode = "real" | "rules" | "stub";
  */
 export function registerHunt(cmd: Command): Command {
   return cmd
-    .description("Agentic scanner — run the budget-bounded scout over a mandate")
+    .description("Agentic scanner: run the budget-bounded scout over a mandate")
     .option("--mandate <file>", "Load a mandate JSON file")
     .option("--target <target>", "Package ID or name to monitor")
     .option(
@@ -141,6 +141,7 @@ function printHumanReport(report: any, mode: string): void {
 
   console.log("\nCHASE HUNT REPORT");
   console.log("=================\n");
+  console.log(`Network:  ${report.coverage?.network ?? "unknown"}`);
   console.log(`Target:   ${report.mandate.target}`);
   console.log(`Goal:     ${report.mandate.goal}`);
   console.log(`Mode:     ${mode}`);
@@ -180,14 +181,14 @@ function printHumanReport(report: any, mode: string): void {
       // look at was invisible in the terminal.
       if (f.investigation) {
         console.log(
-          `      investigator: ${f.investigation.verdict} — ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
+          `      investigator (${f.investigation.verdict}): ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
         );
         const evidence = evidenceLine(f.investigation.evidence);
         if (evidence) console.log(`        ${evidence}`);
         if (f.investigation.reasoning) console.log(`        ${f.investigation.reasoning}`);
       }
       for (const v of f.violations ?? []) {
-        console.log(`      ${v.severity.toUpperCase()} ${v.type} — ${v.message}`);
+        console.log(`      ${v.severity.toUpperCase()} ${v.type}: ${v.message}`);
       }
     }
   }

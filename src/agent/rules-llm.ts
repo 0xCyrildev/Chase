@@ -84,7 +84,7 @@ export class RuleBasedLLM implements ScoutLLM {
         `Budget used: ${input.usage.rpcCalls} RPC, ${input.usage.llmCalls} LLM calls, ${input.usage.llmTokens} tokens, ${input.usage.elapsedMs}ms.`,
         input.findings.length === 0
           ? c.passes === 0
-            ? "NOTHING SCANNED — no pass ran (dry-run, or the budget stopped first); this is not a result about the target."
+            ? "NOTHING SCANNED: no pass ran (dry-run, or the budget stopped first); this is not a result about the target."
             : c.txsListed === 0
               ? "This was an EMPTY SCAN, not a clean one: the range listed no transactions at all."
               : c.txsAnalyzed === 0
@@ -150,7 +150,7 @@ export class RuleBasedLLM implements ScoutLLM {
       hypothesis: "name match only",
       reasoning:
         `Every high-severity signal here fired on a function name: ${signalTypes(nameMatched)}. ` +
-        `A name match is not a state change — read the left-hand function of each pair to check whether it ` +
+        `A name match is not a state change. Read the left-hand function of each pair to check whether it ` +
         `writes a value the right-hand call consumes. Nothing here is evidence either way.`,
       source: "rules",
       tokens: 0,

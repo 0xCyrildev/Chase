@@ -19,7 +19,7 @@ const program = new Command();
 
 program
   .name("chase")
-  .description("Chase — dynamic analysis tool for Sui Move transactions")
+  .description("Chase: dynamic analysis for Sui Move transactions")
   .version(VERSION);
 
 program
@@ -92,7 +92,7 @@ program
       if (c.unreachableTraces > 0 || c.checkpoints > 0) {
         console.error(
           `[chase] also removed ${c.unreachableTraces} trace file(s) left over from before traces were ` +
-            `namespaced by network and ${c.checkpoints} checkpoint listing(s) — these were unreadable ` +
+            `namespaced by network and ${c.checkpoints} checkpoint listing(s); these were unreadable ` +
             `and had survived --clear until now`
         );
       }

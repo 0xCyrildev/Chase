@@ -52,12 +52,18 @@ export function coverageCaveat(c: ScanCoverage): string {
   // coverage object. Calling that "complete — every listed transaction reached" is true only in the
   // vacuous sense that it listed nothing, and it reads to a reviewer as a clean sweep.
   if (c.passes === 0) {
-    return "NO SCAN RAN — 0 passes completed (dry-run, or the budget stopped before the first pass); this says nothing about the target";
+    return "NO SCAN RAN: 0 passes completed (dry-run, or the budget stopped before the first pass); this says nothing about the target";
   }
 
   const problems: string[] = [];
   if (!c.complete) problems.push("a listing stopped before the checkpoint bound");
-  if (c.txsErrored > 0) problems.push(`${c.txsErrored} transactions failed to analyze`);
+  if (c.txsErrored > 0)
+    problems.push(
+      `${c.txsErrored} transactions failed to analyze on ${c.network ?? "the mandate's network"}` +
+        (c.txsErrored === c.txsListed && c.txsListed > 0
+          ? " (every listed digest failed, which is what a list spanning two networks looks like)"
+          : "")
+    );
 
   const unreached =
     c.txsListed -
@@ -69,11 +75,11 @@ export function coverageCaveat(c: ScanCoverage): string {
 
   if (problems.length === 0) {
     if (c.checkpointsScanned === 0) {
-      return "complete — every named transaction reached (no checkpoint sweep was performed)";
+      return "complete: every named transaction reached (no checkpoint sweep was performed)";
     }
-    return "complete — every listed transaction reached, to the checkpoint bound";
+    return "complete: every listed transaction reached, to the checkpoint bound";
   }
-  return `INCOMPLETE — ${problems.join("; ")}`;
+  return `INCOMPLETE: ${problems.join("; ")}`;
 }
 
 export function toMarkdown(report: AgentReport): string {
@@ -81,6 +87,7 @@ export function toMarkdown(report: AgentReport): string {
 
   lines.push(`# Chase Hunt Report`);
   lines.push(``);
+  lines.push(`**Network:** ${report.coverage?.network ?? "unknown"}`);
   lines.push(`**Target:** \`${report.mandate.target}\``);
   lines.push(`**Goal:** ${report.mandate.goal}`);
   const c = report.coverage;
@@ -119,7 +126,7 @@ export function toMarkdown(report: AgentReport): string {
   } else {
     for (const d of report.decisions) {
       lines.push(
-        `- **${d.action}${d.degraded ? " [DEGRADED — not a model decision]" : ""}**: ${d.reason}`
+        `- **${d.action}${d.degraded ? " [DEGRADED: not a model decision]" : ""}**: ${d.reason}`
       );
     }
   }
@@ -143,7 +150,7 @@ export function toMarkdown(report: AgentReport): string {
       if (f.investigationError) lines.push(`- **Investigation problem:** ${f.investigationError}`);
       if (f.investigation) {
         lines.push(
-          `- **Investigator:** ${f.investigation.verdict} — ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
+          `- **Investigator:** ${f.investigation.verdict}. ${f.investigation.hypothesis}${investigationProvenance(f.investigation)}`
         );
         const evidence = evidenceLine(f.investigation.evidence);
         if (evidence) lines.push(`  - ${evidence}`);
@@ -153,7 +160,7 @@ export function toMarkdown(report: AgentReport): string {
       }
       lines.push(``);
       for (const v of f.violations) {
-        lines.push(`- **${v.severity.toUpperCase()}** ${v.type} — ${v.message}`);
+        lines.push(`- **${v.severity.toUpperCase()}** ${v.type}: ${v.message}`);
       }
       lines.push(``);
     }

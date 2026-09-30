@@ -81,7 +81,7 @@ export async function runAnalysis(
 
   if (!trace.success) {
     console.error(
-      `[chase] note: transaction ${digest} failed on-chain — analyzing attempted calls anyway`
+      `[chase] note: transaction ${digest} failed on-chain, analyzing the attempted calls anyway`
     );
   }
 

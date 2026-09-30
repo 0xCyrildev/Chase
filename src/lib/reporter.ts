@@ -9,7 +9,7 @@ const sevColor: Record<Severity, (s: string) => string> = {
 };
 
 export function printReport(report: AnalysisReport): void {
-  console.log(pc.bold(`\n CHASE — Transaction Analysis`));
+  console.log(pc.bold(`\n CHASE - Transaction Analysis`));
   console.log(pc.gray(`Digest:  ${report.digest}`));
   console.log(pc.gray(`Network: ${report.network}`));
   console.log(pc.gray(`Status:  ${report.success ? pc.green("success") : pc.red("failed")}`));
@@ -26,7 +26,7 @@ export function printReport(report: AnalysisReport): void {
     console.log(
       pc.gray(
         `Note:    ${report.stats.silentObjectChanges} object change(s) in this transaction and no event ` +
-          `emitted at all — stated, not scored (39% of mainnet traffic is silent this way)`
+          `emitted at all; stated rather than scored, because 39% of mainnet traffic is silent this way`
       )
     );
   }

@@ -31,7 +31,7 @@ export function formatReport(
   const caveats = collectCaveats(findings);
   if (skipped.length > 0) {
     caveats.push(
-      `${skipped.length} of ${digests.length} digest(s) could not be analyzed and are listed under "skipped" — this report covers the rest, not the input.`
+      `${skipped.length} of ${digests.length} digest(s) could not be analyzed and are listed under "skipped", so this report covers the rest and not the input.`
     );
   }
 
@@ -94,7 +94,7 @@ export function printReport(report: TriageReport): void {
   if (report.skipped.length > 0) {
     console.log(
       pc.yellow(
-        `  skipped: ${report.skipped.length} of ${report.digests.length} digest(s) — no findings from those, for the reason below`
+        `  skipped: ${report.skipped.length} of ${report.digests.length} digest(s), no findings from those, for the reason listed below`
       )
     );
   }

@@ -48,7 +48,7 @@ export class StubLLM implements ScoutLLM {
     return {
       verdict: "suspicious",
       hypothesis: "stub: fixed response",
-      reasoning: `stub reading for ${input.digest.slice(0, 12)}… — ${input.evidence.commandCount} command(s), ${input.violations.length} violation(s), never a judgement`,
+      reasoning: `stub reading for ${input.digest.slice(0, 12)}… (${input.evidence.commandCount} command(s), ${input.violations.length} violation(s), never a judgement)`,
       source: "stub",
       tokens: 0,
     };

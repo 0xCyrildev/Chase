@@ -135,7 +135,7 @@ export class TraceFetcher {
         // than letting a second bare notFound imply someone typed the wrong digest.
         if (archiveErr?.reason === "notFound") {
           const e = new Error(
-            `transaction ${digest} not found on the fullnode or the archive endpoint — ` +
+            `transaction ${digest} not found on the fullnode or the archive endpoint: ` +
               `pruned by the retention window (~21 days on public mainnet), or wrong network`
           ) as Error & { reason?: string };
           e.reason = "notFound";
@@ -171,7 +171,7 @@ export class TraceFetcher {
       if (typeof err?.message === "string" && err.message.trim() === "") {
         const code = err?.codeName ?? (typeof err?.code === "number" ? `code ${err.code}` : "unknown");
         const detail =
-          typeof err?.details === "string" && err.details ? ` — ${err.details.slice(0, 160)}` : "";
+          typeof err?.details === "string" && err.details ? ` (${err.details.slice(0, 160)})` : "";
         const wrapped = new Error(
           `gRPC ${err?.constructor?.name ?? "RpcError"} ${code}${detail} while reading ${digest.slice(0, 12)}…`
         ) as Error & { reason?: string; code?: unknown };

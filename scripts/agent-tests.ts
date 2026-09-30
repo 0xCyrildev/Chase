@@ -546,6 +546,13 @@ for (const c of allInvariants) {
   check(`README documents the ${c.name} check`, readme.includes(`### ${c.name}`));
 }
 
+// The architecture tree in the README lists every detector file by name. It drifted for three releases
+// because nothing read it, which is the same class of failure as a stale count: a reader trusts it.
+for (const f of fs.readdirSync(path.join(ROOT, "src", "invariants"))) {
+  if (!f.endsWith(".ts") || f === "index.ts") continue;
+  check(`README's architecture tree lists ${f}`, readme.includes(f), "the file tree is documentation someone reads");
+}
+
 for (const t of owners.keys()) {
   check(`${t} appears in the README modifier table`, new RegExp(`\\| *${t} *\\|`).test(readme),
     "the table is what a reader trusts to explain scoring; config drift shows up here first");
@@ -713,7 +720,7 @@ const emptyCov = {
   txsListed: 0, txsAnalyzed: 0, txsSkipped: 0, txsTargetMissed: 0, txsCarried: 0,
   txsErrored: 0, complete: true, analysisComplete: true,
 };
-check("an empty coverage object is never called a complete sweep", !/complete — every listed transaction reached/.test(coverageCaveat(emptyCov as any)) && /^NO SCAN RAN/.test(coverageCaveat(emptyCov as any)), coverageCaveat(emptyCov as any));
+check("an empty coverage object is never called a complete sweep", !/complete: every listed transaction reached/.test(coverageCaveat(emptyCov as any)) && /^NO SCAN RAN/.test(coverageCaveat(emptyCov as any)), coverageCaveat(emptyCov as any));
 
 const dry = await scout(
   { target: PKG, checkpoints: 2, goal: "dry-run honesty", budget: { maxRpcCalls: 4, maxLlmCalls: 3, maxLlmTokens: 5000, maxWallMs: 30000 } },
@@ -724,6 +731,31 @@ check("a dry-run completes without touching the chain", dry.usage.rpcCalls === 0
 check("dry-run coverage does not report 'complete'", !/^complete/.test(coverageCaveat(dry.coverage)), coverageCaveat(dry.coverage));
 check("dry-run coverage names the reason", /NO SCAN RAN/.test(coverageCaveat(dry.coverage)), coverageCaveat(dry.coverage));
 check("dry-run summary refuses to read as a result", /NOTHING SCANNED/.test(dry.summary), dry.summary.slice(-90));
+
+// A --txs list spanning two networks is the easiest way to lose a whole afternoon: the digests from
+// the other chain fail as `not found`, which reads exactly like the retention window. So the coverage
+// line has to say which chain was read, and say it louder when every single digest failed.
+const allFailed = {
+  network: "testnet" as const, passes: 1, startCheckpoint: null, endCheckpoint: null,
+  checkpointsScanned: 0, txsListed: 4, txsAnalyzed: 0, txsSkipped: 0, txsTargetMissed: 0,
+  txsCarried: 0, txsErrored: 4, complete: true, analysisComplete: false,
+};
+check("a fully failed digest list names the network it was read on", /failed to analyze on testnet/.test(coverageCaveat(allFailed as any)), coverageCaveat(allFailed as any));
+check("and it says so when every listed digest failed", /list spanning two networks/.test(coverageCaveat(allFailed as any)), coverageCaveat(allFailed as any));
+const someFailed = { ...allFailed, txsListed: 12, txsErrored: 3, txsAnalyzed: 9 };
+check("a partial failure names the network without the two-network hint",
+  /failed to analyze on testnet/.test(coverageCaveat(someFailed as any)) && !/list spanning two networks/.test(coverageCaveat(someFailed as any)),
+  coverageCaveat(someFailed as any));
+
+const netReport = await scout(
+  { target: "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg", txs: ["9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg"], checkpoints: 1, goal: "network labelling", budget: { maxRpcCalls: 8, maxLlmCalls: 2, maxLlmTokens: 5000, maxWallMs: 30000 } },
+  new RuleBasedLLM(),
+  { network: "testnet" }
+);
+const netMd = toMarkdown(netReport);
+check("the hunt report states which chain it read", /\*\*Network:\*\* testnet/.test(netMd), netMd.split("\n").slice(0, 6).join(" | "));
+check("coverage carries the network for a reader of the JSON", netReport.coverage.network === "testnet", String(netReport.coverage.network));
+
 
 console.log("\ncorroboration independence (found in live traffic, 308 txs)");
 

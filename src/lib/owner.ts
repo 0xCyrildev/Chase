@@ -85,4 +85,4 @@ export function outputOwnerOf(change: ObjectChange): { kind: OwnerKind; objectId
 
 /** A finding must say so when the owner was never recorded, rather than leaving it implicit. */
 export const UNRECORDED_NOTE =
-  "owner kind was not recorded for this cached trace — re-analyze with --no-cache to resolve it";
+  "owner kind was not recorded for this cached trace; re-analyze with --no-cache to resolve it";

@@ -16,7 +16,7 @@ const SUI_COIN = `${FRAMEWORK}::sui::SUI`;
 export const coinNetImbalance: InvariantChecker = {
   name: "coin-net-imbalance",
   description:
-    "Reports a coin type whose amounts do not sum to zero across the addresses in the transaction — " +
+    "Reports a coin type whose amounts do not sum to zero across the addresses in the transaction, " +
     "value that entered or left the address-visible set, which is where shared-object balances live",
   emits: [{ type: "COIN_NET_IMBALANCE", severity: "low" }],
   check(trace: SuiTransactionTrace): Violation[] {
@@ -53,7 +53,7 @@ export const coinNetImbalance: InvariantChecker = {
         severity: "low",
         message:
           `${shortType(coinType)}: ${net > 0n ? "+" : ""}${net} unaccounted for across ` +
-          `${entries.length} address(es) — value ${net > 0n ? "entered" : "left"} the address-visible set`,
+          `${entries.length} address(es); value ${net > 0n ? "entered" : "left"} the address-visible set`,
         evidence: {
           coinType,
           net: net.toString(),
