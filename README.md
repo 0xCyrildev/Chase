@@ -1141,6 +1141,18 @@ sui client publish --gas-budget 100000000
   silently decays its own signal. Novelty penalties kick in after 20
   occurrences. Set `CHASE_HISTORY_FILE=""` to disable the store entirely.
 
+- **`chase_investigate` has no budget, because the budget is the scout's.** Ten digests is the cap on
+  one call and each costs a trace fetch, but `mode: "real"` asks a provider ten times with no LLM or
+  token ceiling in the middle. That is deliberate: a hard stop belongs on an agent that decides for
+  itself how far to go, not on a function that reads exactly what it was handed. If the caller wants a
+  ceiling, the caller is the one who has to hold it, or route through `chase_hunt` instead.
+
+- **One cursor file per network, last writer wins.** `chase watch` keeps a monitor's position in a
+  single document, which is right for one operator watching one chain and wrong for two concurrent
+  `chase watch` runs on the same network: they would overwrite each other's position and neither would
+  report a gap. Run one monitor per network, or give the second one its own file with
+  `CHASE_WATCH_CURSOR_FILE`.
+
 ## Roadmap
 
 - [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise.

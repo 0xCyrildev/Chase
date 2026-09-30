@@ -71,6 +71,12 @@ Chase is not, which is a fifth static auditor.
 > `CHANGELOG.md` beside the change that moved them.
 >
 > One command, no clone, no key: `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
+>
+> It also ships as an agent skill, `skill/chase/` in the repo: frontmatter and trigger phrases for when an
+> agent should reach for runtime evidence instead of a source audit, the tool table, how to read a coverage
+> line without over-claiming it, and two real hunt reports under `references/`, one that found signals and
+> one that found nothing. The empty one is in there on purpose, because an agent that has only ever seen a
+> successful scan will report an unscanned range as a clean one.
 
 ## Before opening it
 
