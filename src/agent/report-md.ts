@@ -61,7 +61,7 @@ export function coverageCaveat(c: ScanCoverage): string {
     problems.push(
       `${c.txsErrored} transactions failed to analyze on ${c.network ?? "the mandate's network"}` +
         (c.txsErrored === c.txsListed && c.txsListed > 0
-          ? " (every listed digest failed, which is what a list spanning two networks looks like)"
+          ? " (every listed digest failed, which is also what a list spanning two networks looks like)"
           : "")
     );
 

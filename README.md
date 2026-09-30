@@ -90,14 +90,17 @@ Digest:  2UkzDTPuKXLX3JeWKXR7eUvpBqCtdDGkCW7PHWwBrEk8
 Network: mainnet
 Status:  failed
 Sender:  0x246a7c59dffe45e63f0a81ac7b7893398d756f85cdd0b4e64cf63d2ea6cbb5fe
+Time:    2026-09-30T09:11:33.943Z
 Stats:   2 cmds | 1 balance changes | 4 object changes | 0 events
-Note:    3 object change(s) in this transaction and no event emitted at all; stated rather than
-         scored, because 39% of mainnet traffic is silent this way
+Note:    3 object change(s) in this transaction and no event emitted at all; stated rather than scored, because 39% of mainnet traffic is silent this way
 
 ⚠  1 violation(s) detected:
 
   [LOW] UNANNOUNCED_OBJECT_CHANGE
     balance_manager::TradeCap mutated with no event from balance_manager (the sender held it; now address)
+
+    … the tool also prints the full evidence object here, with objectId, objectType,
+      changeType, changedPackage, recipientKind, eventsInTx, eventPackages and a note
 ```
 
 Two things are worth noticing in that. The transaction failed on chain and was still analysed, because a
@@ -677,9 +680,18 @@ marked. Note that the coverage line claims no range it did not read, and that
 P3 is left uninvestigated on purpose:
 
 ```
+CHASE HUNT REPORT
+=================
+
+Network:  testnet
+Target:   explicit:7 tx(s)
+Goal:     detect suspicious activity
+Mode:     rules
 Scope:    7 explicit transaction(s), 1 pass (no checkpoint sweep)
 Covered:  seq n/a-n/a (0 wide) | 7 listed | 7 analyzed | 0 no target call | 0 system | 0 repeat
 Coverage: complete: every named transaction reached (no checkpoint sweep was performed)
+
+
 Findings: 7
   9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg [P0] -> ESCALATE
       investigator (suspicious): MUTABLE_REFERENCE_RETURNED (rules layer, not a model)
@@ -706,8 +718,26 @@ Findings: 7
       HIGH CAPABILITY_TRANSFER: TreasuryCap transferred to 0x0000000000…
   CFcSiiRgdsXU7Rb4SVjqEyBbx4yiFJWrASYcHcM56hx9 [NOISE] -> DISMISS
       LOW REPEATED_MODULE_CALLS: 0x54449550645a2fcd9a2436386d03607058ea0f24cb75efcd3dd52dedc6241ec1::repeat called 5 times in one PTB
-  … (timestamps, budget usage and the decision chain elided; nothing else changed)
+  … (timestamps, budget usage and the decision chain elided, nothing else changed)
 ```
+
+The same list run with no cache at all, against testnet transactions the chain no longer holds, is what
+the coverage line looks like when it is doing its job properly, and this is genuinely how that output was
+first produced:
+
+```
+Network:  testnet
+Covered:  seq n/a-n/a (0 wide) | 7 listed | 0 analyzed | 0 no target call | 0 system | 0 repeat
+Coverage: INCOMPLETE: 7 transactions failed to analyze on testnet (every listed digest failed, which is also what a list spanning two networks looks like)
+Findings: 0
+```
+
+Two things that line has to carry. It names the network it read, and it says out loud that every listed
+digest failed instead of leaving the reader to do the arithmetic. The cause in this instance was retention,
+since those testnet transactions are simply gone, and the parenthetical is written as a possibility rather
+than a verdict because the tool cannot tell the two apart from here. That is the trade being made: name
+the axis the reader needs, do not claim a diagnosis. A `--txs` list is analysed entirely on the mandate's single network, so a file mixing mainnet and
+testnet digests is one flag away from an empty report.
 
 The escalation threshold is P0 through P2. A report that investigated everything would
 say nothing about which findings it thought mattered, so the `P3` above is

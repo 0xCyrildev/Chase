@@ -5,6 +5,15 @@ measurement says what it was taken over. Corpus figures come from `npm run corpu
 invariant and triage pipeline over the local mainnet trace cache offline, with the novelty history disabled
 so two runs compare.
 
+## 0.2.3
+
+**A hint that does not claim a diagnosis.** The failed-analysis coverage line said "every listed digest
+failed, which is what a list spanning two networks looks like", stated as a fact about the cause. Reading
+this release's own example, the cause was retention, the testnet transactions are simply gone, so the
+wording became "which is *also* what a list spanning two networks looks like". Naming the axis a reader
+needs is useful, asserting a cause the trace cannot see is not, and the README example now shows the
+difference rather than hiding it.
+
 ## 0.2.2
 
 **Output that says which chain it read, and no dashes in the tool's own voice.**
