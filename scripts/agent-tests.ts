@@ -13,7 +13,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const FIXTURES = path.join(ROOT, "test-cases", "fixtures");
@@ -709,6 +709,152 @@ try {
   fs.rmSync(path.dirname(cursorFile), { recursive: true, force: true });
 }
 
+console.log("\nwatch cursor: inspectable, clearable, and it never deletes what it cannot read");
+
+const { cursorStatus, clearCursor, describeCursor, saveCursor } = await import("../src/lib/cursor.js");
+
+const stateFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "chase-cursor-state-")), "watch-cursor.json");
+process.env.CHASE_WATCH_CURSOR_FILE = stateFile;
+try {
+  check("--status on a file that does not exist says nothing is saved rather than inventing a position",
+    cursorStatus("mainnet").state === "absent");
+  saveCursor("mainnet", 4000n, ["3998"]);
+  saveCursor("testnet", 70n);
+  const savedStatus = cursorStatus("mainnet");
+  check("a saved position reads back with its gap ledger intact",
+    savedStatus.state === "saved" && savedStatus.entry?.checkpoint === "4000" && savedStatus.entry.gaps.join(",") === "3998",
+    JSON.stringify(savedStatus.entry));
+  check("and each network is read separately, so a testnet reset cannot orphan mainnet",
+    cursorStatus("testnet").entry?.checkpoint === "70" && cursorStatus("mainnet").entry?.checkpoint === "4000");
+  check("the compact line `chase cache` prints names the position and its gaps",
+    /mainnet: next checkpoint 4000 \(.*, 1 gap\(s\)\)/.test(describeCursor("mainnet")), describeCursor("mainnet"));
+
+  const removed = clearCursor("mainnet");
+  check("reset forgets one network and leaves the other stored",
+    removed.removed && cursorStatus("mainnet").state === "absent" && cursorStatus("testnet").entry?.checkpoint === "70");
+  check("and it reports what it deleted, because the operator may want it back",
+    removed.entry?.checkpoint === "4000" && removed.entry.gaps.join(",") === "3998");
+  const again = clearCursor("mainnet");
+  check("resetting a network with nothing saved is not an error",
+    !again.removed && again.detail === undefined, JSON.stringify(again));
+
+  fs.writeFileSync(stateFile, "{ this is not json");
+  const corrupt = clearCursor("mainnet");
+  check("a reset does not delete a store it could not parse",
+    !corrupt.removed && fs.readFileSync(stateFile, "utf8").includes("not json"), corrupt.detail);
+  check("and --status reports why it cannot read the file instead of saying 'nothing saved'",
+    cursorStatus("mainnet").state === "unreadable" && !!cursorStatus("mainnet").detail);
+  fs.writeFileSync(stateFile, JSON.stringify({ mainnet: { checkpoint: "nope" } }));
+  check("a record with no usable checkpoint is unreadable, not absent",
+    cursorStatus("mainnet").state === "unreadable");
+  check("and that is the one garbage a reset is allowed to clear", clearCursor("mainnet").removed);
+
+  process.env.CHASE_WATCH_CURSOR_FILE = "";
+  check("with cursor saving disabled, --status says disabled rather than 'nothing saved'",
+    cursorStatus("mainnet").state === "disabled");
+  check("and a reset does not claim to have deleted something it never kept",
+    !clearCursor("mainnet").removed);
+} finally {
+  process.env.CHASE_WATCH_CURSOR_FILE = "";
+  fs.rmSync(path.dirname(stateFile), { recursive: true, force: true });
+}
+
+console.log("\nbounded watch ranges (--to), against a fake ledger");
+
+// Same caveat as the loop above: the listing is a fake, so these pin the run's bookkeeping against a
+// range, not that a real endpoint behaves this way. The tip re-check is the part worth pinning, because
+// walking past the tip and recording those checkpoints as attempted is how a monitor claims coverage
+// the chain never had.
+async function drive(opts: any, fake: any) {
+  const lines: string[] = [];
+  const listed: bigint[] = [];
+  const heights: number[] = [];
+  const codes: number[] = [];
+  const f: any = {
+    async getCheckpointHeight() {
+      heights.push(1);
+      return fake.current();
+    },
+    async getCheckpointTransactions(seq: bigint) {
+      listed.push(seq);
+      return [];
+    },
+  };
+  const rl = console.log;
+  const re = console.error;
+  console.log = (...a: any[]) => lines.push(a.join(" "));
+  console.error = (...a: any[]) => lines.push(a.join(" "));
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "chase-watch-range-")), "watch-cursor.json");
+  process.env.CHASE_WATCH_CURSOR_FILE = file;
+  try {
+    await watchCommand(opts, { fetcher: f, sleep: async () => {}, exit: (c: number) => void codes.push(c) });
+    // A refused run never writes a position, so "no file" is itself an answer and not a crash.
+    const stored = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).mainnet : undefined;
+    return { printed: lines.join("\n"), listed, codes, heights, saved: stored?.checkpoint, wrotePosition: stored !== undefined };
+  } finally {
+    console.log = rl;
+    console.error = re;
+    process.env.CHASE_WATCH_CURSOR_FILE = "";
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
+  }
+}
+
+const inRange = await drive({ from: "2998", to: "2999" }, { current: () => ({ current: 3000n, lowest: 1n }) });
+check("--to bounds the listing: it read 2998 and 2999 and stopped",
+  inRange.listed.join(",") === "2998,2999" && inRange.heights.length === 1, inRange.listed.join(","));
+check("the cursor moves to the checkpoint after the range, so the next run starts past it",
+  inRange.saved === "3000" && inRange.codes.length === 0, `${inRange.saved} / ${inRange.codes}`);
+check("a delivered range says it watched the requested range",
+  /watched the requested range/.test(inRange.printed));
+
+const pastTip = await drive({ from: "2998", to: "3010" }, { current: () => ({ current: 3000n, lowest: 1n }) });
+check("a range past the tip stops at the tip rather than recording nonexistent checkpoints",
+  pastTip.listed.join(",") === "2998,2999,3000", pastTip.listed.join(","));
+check("it re-checked the tip before giving up on the rest of the range",
+  pastTip.heights.length === 2, String(pastTip.heights.length));
+check("and says which part was not scanned",
+  /--to 3010 was not reached.*do not exist yet and were not scanned/s.test(pastTip.printed.replace(/\n/g, " ")),
+  pastTip.printed.split("\n").filter((l) => /incomplete|not reached/.test(l)).join(" | "));
+check("and the closing line does not then claim it watched the range it could not",
+  !/watched the requested range/.test(pastTip.printed) && /watched as far as this endpoint has data/.test(pastTip.printed),
+  pastTip.printed.split("\n").filter((l) => /watched/.test(l)).join(" | "));
+check("that exits non-zero, because an undelivered range is not a clean run",
+  pastTip.codes.join(",") === "2", pastTip.codes.join(","));
+check("with the cursor left at the first checkpoint it could not read",
+  pastTip.saved === "3001", String(pastTip.saved));
+
+let heightCalls = 0;
+const tipAdvances = await drive({ from: "2999", to: "3005" }, {
+  current: () => ({ current: (++heightCalls === 1 ? 3000n : 3012n), lowest: 1n }),
+});
+check("a tip that advances while the run works is re-checked, not assumed",
+  tipAdvances.listed[tipAdvances.listed.length - 1] === 3005n && tipAdvances.codes.length === 0,
+  tipAdvances.listed.join(","));
+check("and the run reports the whole requested range", tipAdvances.saved === "3006", String(tipAdvances.saved));
+
+const limitFirst = await drive({ from: "2998", to: "3010", limit: "1" }, { current: () => ({ current: 3000n, lowest: 1n }) });
+check("--limit stopping a range short is the stop the operator asked for, so it exits clean",
+  limitFirst.codes.length === 0, limitFirst.codes.join(","));
+check("and it says the range was cut, naming where the next run picks up",
+  /--limit stopped the run at 2999/.test(limitFirst.printed) && limitFirst.saved === "2999", limitFirst.saved);
+
+const inverted = await drive({ from: "2998", to: "2990" }, { current: () => ({ current: 3000n, lowest: 1n }) });
+check("--to before the start is refused before anything is listed",
+  inverted.codes.join(",") === "2" && inverted.listed.length === 0, `codes=${inverted.codes} listed=${inverted.listed}`);
+check("and a refused run does not leave a position behind, so a later --status cannot mislead",
+  !inverted.wrotePosition);
+
+const nothingExisted = await drive({ from: "1500", to: "1600" }, { current: () => ({ current: 1000n, lowest: 1n }) });
+check("a range that starts above the tip reads nothing at all",
+  nothingExisted.listed.length === 0 && nothingExisted.codes.join(",") === "2",
+  `listed=${nothingExisted.listed} codes=${nothingExisted.codes}`);
+check("and says it saved no position rather than claiming a cursor it never wrote",
+  /saved no position/.test(nothingExisted.printed) && !nothingExisted.wrotePosition &&
+    /watched as far as this endpoint has data/.test(nothingExisted.printed),
+  nothingExisted.printed.split("\n").filter((l) => /position|watched/.test(l)).join(" | "));
+check("with the reason in words a reader can act on",
+  /nothing would be scanned/.test(inverted.printed));
+
 console.log("\ndry-run coverage (the published artifact surfaced this one)");
 
 const { scout } = await import("../src/agent/scout.js");
@@ -795,6 +941,16 @@ const lockRoot = lock.packages?.[""] ?? {};
 check("package.json and the lockfile name agree", lockRoot.name === pkg.name, `${lockRoot.name} vs ${pkg.name}`);
 check("package.json and the lockfile version agree", lockRoot.version === pkg.version, `${lockRoot.version} vs ${pkg.version}`);
 check("version.ts reads the same value the manifest declares", (await import("../src/lib/version.js")).VERSION === pkg.version);
+
+// "Three layers, each callable on its own" is a claim about the library surface, so it gets checked
+// against the surface rather than kept in prose where the investigator sat missing for a release.
+const libExports = await import("../src/exports.js");
+for (const layer of ["runAnalysis", "triage", "scout", "investigate"]) {
+  check(`the library exports the ${layer} layer`, typeof (libExports as any)[layer] === "function");
+}
+check("and exports the invariant set itself, enumerable rather than hidden behind a call",
+  Array.isArray((libExports as any).allInvariants) && (libExports as any).allInvariants.length === 11,
+  String((libExports as any).allInvariants?.length));
 check("the package is scoped to the npm username, not the GitHub handle", pkg.name.startsWith("@zeroxcyril/"), pkg.name);
 
 // The bins ship in the tarball with whatever mode the build left them in. tsc emits 0644 with a
@@ -969,19 +1125,18 @@ try {
 
 console.log("\nargument validation (what a user sees first)");
 
-function run(args: string[]): { code: number; out: string } {
-  try {
-    const o = execFileSync("npx", ["tsx", path.join(ROOT, "src/index.ts"), ...args], {
-      cwd: ROOT,
-      env: { ...process.env, CHASE_CACHE_DIR: FIXTURES, CHASE_HISTORY_FILE: "" },
-      encoding: "utf8",
-      stdio: "pipe",
-      timeout: 60000,
-    });
-    return { code: 0, out: o };
-  } catch (e: any) {
-    return { code: e.status ?? 1, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
-  }
+function run(args: string[], extraEnv: Record<string, string> = {}): { code: number; out: string } {
+  const r = spawnSync("npx", ["tsx", path.join(ROOT, "src/index.ts"), ...args], {
+    cwd: ROOT,
+    // CHASE_WATCH_CURSOR_FILE='' here, so no CLI case can touch a real operator's position. A test
+    // that wants a file passes its own path; a test that wants the default passes a path too.
+    env: { ...process.env, CHASE_CACHE_DIR: FIXTURES, CHASE_HISTORY_FILE: "", CHASE_WATCH_CURSOR_FILE: "", ...extraEnv },
+    encoding: "utf8",
+    timeout: 60000,
+  });
+  // spawnSync, not execFileSync: chase writes its prose to stderr, and execFileSync throws away
+  // stderr on a zero exit, which is exactly the run a --status check needs to read.
+  return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
 }
 
 const badLimit = run(["watch", "--limit", "0"]);
@@ -989,6 +1144,38 @@ check("watch rejects a zero limit before touching the network", badLimit.code ==
 
 const badFrom = run(["watch", "--from", "abc"]);
 check("watch rejects a non-numeric --from", badFrom.code === 2 && /checkpoint number/.test(badFrom.out), `code=${badFrom.code}`);
+
+const badTo = run(["watch", "--to", "abc"]);
+check("watch rejects a non-numeric --to", badTo.code === 2 && /--to must be a checkpoint number/.test(badTo.out), `code=${badTo.code}`);
+
+// An endpoint that cannot resolve proves the call made no network request: --status is a question
+// about a local file and must keep answering it when the chain is unreachable.
+const statusOffline = run(["watch", "--status"], { SUI_RPC_URL: "https://127.0.0.1:1" });
+check("watch --status answers without an endpoint", statusOffline.code === 0 && /no cursor file/.test(statusOffline.out), `code=${statusOffline.code}`);
+check("and it says plainly that no scan ran", /no scan ran \(--status\)/.test(statusOffline.out));
+
+const statusFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "chase-cli-cursor-")), "watch-cursor.json");
+fs.writeFileSync(statusFile, JSON.stringify({ mainnet: { checkpoint: "4100", savedAt: "2026-01-01T00:00:00.000Z", gaps: ["4099"] } }));
+const statusRead = run(["watch", "--status"], { CHASE_WATCH_CURSOR_FILE: statusFile });
+check("watch --status prints the stored position, its gaps, and the file it read",
+  statusRead.code === 0 && /next checkpoint to attempt: 4100/.test(statusRead.out) &&
+    /could not be read: 4099|1 of them could not be read/.test(statusRead.out) &&
+    /watch-cursor\.json/.test(statusRead.out),
+  statusRead.out.split("\n").slice(-6).join(" | "));
+const bothFlags = run(["watch", "--status", "--reset-cursor"], { CHASE_WATCH_CURSOR_FILE: statusFile });
+check("asking --status and --reset-cursor at once is refused, so you read before you delete",
+  bothFlags.code === 2 && fs.readFileSync(statusFile, "utf8").includes("4100"), `code=${bothFlags.code}`);
+const didReset = run(["watch", "--reset-cursor"], { CHASE_WATCH_CURSOR_FILE: statusFile });
+check("watch --reset-cursor forgets the position and prints what it was",
+  didReset.code === 0 && /forgot the mainnet position \(was 4100/.test(didReset.out),
+  didReset.out.split("\n").slice(-4).join(" | "));
+check("and the stored checkpoint is gone rather than merely reported as history",
+  !fs.readFileSync(statusFile, "utf8").includes("4100"), fs.readFileSync(statusFile, "utf8").slice(0, 60));
+fs.rmSync(path.dirname(statusFile), { recursive: true, force: true });
+
+const cacheState = run(["cache"]);
+check("chase cache reports where the watch positions live without writing to them",
+  cacheState.code === 0 && /watch cursor:/.test(cacheState.out) && /no cursor file/.test(cacheState.out), cacheState.out.slice(-200));
 
 const badNet = run(["analyze", "9gwFpqxGmnfUyu8ciiEHHKHmWw42vMJddD6PpUuGLkKg", "-n", "slopnet"]);
 check("analyze rejects an unknown network", badNet.code === 2 && /unknown network/.test(badNet.out), `code=${badNet.code}`);

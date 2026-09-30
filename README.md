@@ -1,12 +1,21 @@
 # Chase
 
+**Static analysis reasons about what a contract says. Chase reasons about what a transaction did.**
+It is the post-deployment layer of a Sui Move security workflow, the phase a source audit cannot
+observe, because by the time Chase runs the chain has already answered.
+
 [![npm version](https://img.shields.io/npm/v/@zeroxcyril/chase.svg)](https://www.npmjs.com/package/@zeroxcyril/chase)
 ![test](https://github.com/0xCyrildev/Chase/actions/workflows/test.yml/badge.svg?branch=main)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Dynamic analysis for Sui Move transactions. You give Chase a transaction digest and it tells you what
-that transaction actually did on chain, which is a different question from what its contract claims, and
-one that no amount of source reading can answer.
+You give it a transaction digest, or a package to watch, and it reads the execution trace off a gRPC
+fullnode and tells you what happened: which calls ran, in what order, what moved, what changed hands,
+and which of eleven invariant checks thought that pattern was worth a human looking at.
+
+It is one tool in four shapes: a CLI you can type, a library a script can import, an MCP server an
+orchestrator can route into, and a packaged agent skill under [`skill/chase/`](#as-an-agent-skill),
+which is the same three layers written for an agent to follow. Detection stays deterministic. A model
+is only ever asked to read and explain what the checks already fired on, never to decide what fired.
 
 ```
    ▄████▄   ██░ ██  ▄▄▄       ██████  ▓█████
@@ -39,8 +48,9 @@ the phase a source audit cannot observe.
 | After deployment | **Chase** | what did this transaction actually do? |
 | Continuously | **Chase scout** | is anything happening to this package right now? |
 
-Chase ships as a CLI, a library, and an MCP server, so a human can run it, a script can import it, and an
-agent can call it directly. What it produces is a triage signal with an arithmetic trail, never a
+Chase ships as a CLI, a library, an MCP server and an agent skill, so a human can run it, a script can
+import it, an orchestrator can call it, and another agent can be handed the skill and know when to
+reach for it. What it produces is a triage signal with an arithmetic trail, never a
 verdict. A clean report means that one transaction did not do these things. It does not mean a package is
 safe, and any report that lets you forget that is doing this project wrong.
 
@@ -162,6 +172,9 @@ Watch mode:
 ```bash
 npm run watch -- --limit 1
 npm run watch -- --from 321400000 --filter 0xabc123 --limit 5
+npm run watch -- --from 328575000 --to 328575100      # a bounded range, then stop
+npm run watch -- --status                             # where did it leave off? costs no RPC
+npm run watch -- --reset-cursor -n testnet            # forget that network's position
 ```
 
 A watch run remembers where it got to. The position lives at
@@ -171,6 +184,26 @@ the four cases you are in: `STARTING FROM --from`, `RESUMING FROM SAVED CURSOR`,
 checkpoint to attempt, so a resumed run does not re-scan what was already covered, and checkpoints
 whose listing failed are kept as a `gaps` list rather than quietly absorbed into coverage. The
 closing line repeats them, and `Ctrl-C` now prints that line too before exiting 130.
+
+`--to` ends a range where you say. Two things it will not do: it will not walk past the endpoint's
+tip and record checkpoints that do not exist yet, because that advance would read as coverage the
+chain never had, so a range that outruns the tip stops, names the part it could not scan, leaves the
+cursor at the first unreadable-from-here checkpoint and exits 2. And it will not accept `--to` below
+the checkpoint the run would start from, because a run that scans nothing while printing a tidy
+summary is the one report format that lies. `--limit` cutting a range short is different: that is a
+stop you asked for, so it exits 0 and says where the next run picks up.
+
+The position itself is now inspectable without starting a scan. `--status` prints the file it read,
+the next checkpoint, when it was saved and how many gaps are recorded, and makes no network call at
+all, which matters because "where did the monitor get to?" should stay answerable while the endpoint
+is down. `--reset-cursor` forgets one network's position and leaves the others alone. It prints what
+it removed and the checkpoint you would have to pass to `--from` to get it back, because a reset you
+cannot undo is a reset you will not run. Passing both flags at once is refused: one is a question
+and the other is a deletion, and reading before deleting is the order that keeps the answer
+available. A store this cannot parse is never deleted by a reset either, since the same file holds
+the other networks' positions. `chase cache` prints the same state read-only, and `chase cache
+--clear` explicitly does not touch it: wiping the traces means the next scan refetches, not that it
+forgot where it had got to.
 
 Three deliberate refusals:
 
@@ -189,7 +222,7 @@ Cache management:
 ```bash
 npm run cache -- --dir
 npm run cache -- --clear
-npm run cache                # show signature count
+npm run cache                # signature count, and where each network's watch position lives
 ```
 
 Exit code is `0` when no violations, `1` when at least one fires, `2` on error.
@@ -197,11 +230,17 @@ Exit code is `0` when no violations, `1` when at least one fires, `2` on error.
 ### Library
 
 ```typescript
-import { runAnalysis, triage, scout, allInvariants } from "@zeroxcyril/chase";
+import { runAnalysis, triage, scout, investigate, allInvariants } from "@zeroxcyril/chase";
 
 const report = await runAnalysis(digest, false, true);
 console.log(report.violations);
 ```
+
+`investigate` is the reading layer on its own, because it is a layer rather than a detail of the scout:
+`scout` decides what to read, `investigate` reads what you already named. It takes a triaged finding, one
+`ask` callback (the decision layer you want to form the reading) and a network, and returns the evidence
+with the verdict and its provenance attached. Same shape as the `chase_investigate` MCP tool, so a script,
+an agent and the CLI reach one reading instead of three near-copies of it.
 
 The library entry point is `src/exports.ts` (`dist/exports.js` after a build).
 Import that, not `dist/index.js`: the CLI entry parses `process.argv` when it
@@ -210,12 +249,21 @@ was asked to do.
 
 ### MCP server
 
-Chase exposes six tools over the Model Context Protocol:
+Chase exposes seven tools over the Model Context Protocol:
 
 - `chase_analyze` - fetch a trace and run invariants on a digest
-- `chase_query` - report signature cache state and cache directory
-- `chase_watch` - bounded checkpoint range scan with optional filter
+- `chase_query` - report signature cache state, the cache directory, and where `chase watch` left off
+  on each network (read only; this call never moves a position)
+- `chase_watch` - bounded checkpoint range scan with optional filter. Stateless: it neither reads nor
+  writes the cursor the CLI command keeps, so nothing here advances what `chase watch --status` reports
 - `chase_triage` - run the triage layer over one or more digests
+- `chase_investigate` - read named digests the way the escalated path reads them: one trace fetch each,
+  the commands in order, the packages by call count, the coin movements, what changed hands, the exact
+  names each high-severity signal fired on, and the verdict asked of the layer you name. Every reading
+  carries `source`, so a rules-table answer cannot be mistaken for a model's. Triage's tier comes back
+  beside it, and a digest with nothing to read is returned under `notRead` with its reason rather than
+  going missing. This is the investigator without the scout: it reads what you hand it and does not
+  decide which transactions deserve reading
 - `chase_list` - list digests in a checkpoint range; with `target` + `inspect` it
   verifies whether a package was actually involved, and reports how much of the
   range it did *not* look at
@@ -255,11 +303,19 @@ the commands above.
 
 ### As an agent skill
 
-`skill/chase/` packages Chase as a skill in the format used by
-[pashov/skills](https://github.com/pashov/skills): `SKILL.md` for the agent (tools, workflow, how to read
-coverage honestly, known limits), `README.md` for humans, and `references/` holding two real hunt
-reports: one that found signals on routed Cetus volume, and the empty scan from before the target
-matcher was fixed.
+This README explains Chase to a reader. `skill/chase/` explains it to an agent, in the format used by
+[pashov/skills](https://github.com/pashov/skills): `SKILL.md` with frontmatter and trigger phrases (when
+to reach for dynamic analysis instead of a source audit, and which of the three layers to route into),
+a `README.md` for the human reviewing the agent's work, and `references/` holding real hunt reports, one
+that found signals on routed Cetus volume and one that found nothing before the target matcher was
+fixed. The second one is in there because an agent that has only ever seen successful scans will report
+an empty range as a clean one, which is the failure this project exists to prevent.
+
+Same tool, same limits, same vocabulary in both documents. If a claim appears in the skill and not here,
+one of them is stale, and the stale one is the problem.
+
+Drop the folder into an agent's skill path and it can run a hunt, read the coverage line honestly, and
+tell a P0 from a P3 without reading this file first.
 
 ## Invariants
 
@@ -923,13 +979,14 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ```bash
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
-npm run test:agent        # 245 checks: target matching, budget reserve, investigator
+npm run test:agent        # 318 checks: target matching, budget reserve, investigator
                           # (reading, evidence, provenance), detector keyword shapes,
                           # batch shape, CLI validation, dry-run coverage, manifest/lock
                           # agreement, endpoint configuration, owner vocabulary and
                           # owner recording (incl. a real save->load round trip), the
                           # declaration gate (every emitted type has a deliberate triage
-                          # entry, exactly one owner, a README row and a fixture), and
+                          # entry, exactly one owner, a README row and a fixture), the
+                          # watch cursor store and bounded watch ranges, and
                           # the watch cursor -- including the loop itself, offline,
                           # through injected fetcher/sleep/exit seams
 npx tsx scripts/test-budget.ts   # Budget unit checks (rpc/llm/token/time)
@@ -1101,7 +1158,10 @@ sui client publish --gas-budget 100000000
       retention gap; an override is what does.
 - [x] Persist checkpoint cursor across watch runs (0.2.0), per network, in
       `$XDG_DATA_HOME`, resuming from the last checkpoint it actually finished
-      and refusing to clamp forward past the retention floor.
+      and refusing to clamp forward past the retention floor. 0.3.0 made the
+      position a user-facing thing: `--to` bounds a range and stops honestly at
+      the tip, `--status` prints where it left without a network call, and
+      `--reset-cursor` forgets one network without touching the others.
 - [x] Additional invariants: dynamic field abuse, event-less state changes
       (0.2.0), as `dynamic-field-lifecycle` (create/delete, report-only) and
       `silent-object-change` (0.58%, the narrowed end; the 9% "no events at all"

@@ -49,7 +49,8 @@ Chase is not, which is a fifth static auditor.
 > which layer wrote it. That matters because the two disagree. On one organic mainnet P1 the deterministic
 > layer answered `needs-review`, because all three of its high severity signals were function-name matches,
 > while a model reading the same evidence answered `suspicious`. Neither is a vulnerability claim, and the
-> evidence line is what a human checks either way.
+> evidence line is what a human checks either way. The reading is a layer you can call on its own, seven
+> MCP tools in total, so an orchestrator can ask for it without running a sweep to get it.
 >
 > Limits, stated rather than discovered: three detectors are keyword-based and will happily trip legitimate
 > protocols, `ADDRESS_OUTFLOW` is a heuristic because gRPC balance changes are address scoped, public
@@ -58,14 +59,16 @@ Chase is not, which is a fifth static auditor.
 > positions in the trace, so a protocol reachable only inside another package's internal calls is invisible.
 >
 > Evidence: public MIT repo. CI on every push, running typecheck plus four suites that are all offline
-> against committed traces, with 12 invariant fixtures, 13 triage cases and 258 regression checks. Every
+> against committed traces, with 12 invariant fixtures, 13 triage cases and 318 regression checks. Every
 > violation type has a fixture asserting it fires, seven from synthetic packages published to testnet and
 > five from organic mainnet transactions, and the difference between those two kinds of control is spelled
-> out in the docs because they support different claims. There is a 9-check MCP selftest over stdio and an
-> 18-check live variant, a smoke test against uncached mainnet transactions, and detection quality is
-> measured rather than argued: 3,616 organic mainnet transactions swept across the retention window, and a
-> 6,500-transaction offline corpus run is how the last few detector changes got priced, including two
-> escalations that were caught and reverted before release.
+> out in the docs because they support different claims. There is a 24-check MCP selftest over stdio that
+> needs no network and a 33-check live variant, a smoke test against uncached mainnet transactions, and
+> detection quality is measured rather than argued: 3,616 organic mainnet transactions swept across the
+> retention window, and a 6,576-transaction offline corpus run is how the last few detector changes got
+> priced, including two escalations that were caught and reverted before release. That same corpus run is
+> what every release since re-measures, and the current figures, the flag rate included, are in
+> `CHANGELOG.md` beside the change that moved them.
 >
 > One command, no clone, no key: `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
 
@@ -73,10 +76,12 @@ Chase is not, which is a fifth static auditor.
 
 - [x] Public repo, OSI licence (MIT)
 - [x] Works without an API key, `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
-- [x] Live on npm as `@zeroxcyril/chase`, currently serving 0.1.0 through 0.2.0, each verified by installing
-      from the registry into a clean prefix and running the bins, so a reviewer can try it in one command
-      instead of cloning. 0.2.1 is committed and waiting on a publish grant, and it only fixes the execute
-      bit on the bin files, so nothing in this description depends on it
+- [x] Live on npm as `@zeroxcyril/chase`. Measured 2026-09-30: the registry serves 0.1.0 through 0.2.2 with
+      `latest` at 0.2.2, and each of those was verified by installing from the registry into a clean prefix
+      and running the bins, so a reviewer can try it in one command instead of cloning. 0.3.0 is committed
+      here and waiting on the publish grant; nothing in the description above depends on it being the number
+      a reviewer sees, but the version line under this checkbox does, so re-run `npm view` before opening
+      the PR and update this sentence rather than letting it inherit
 - [x] Description matches neighbours' length, no marketing superlatives
 - [x] The no-install form uses `npx -y -p @zeroxcyril/chase chase …`, because four bins ship in one package
       and the bare form is a question npx cannot answer
@@ -85,6 +90,8 @@ Chase is not, which is a fifth static auditor.
 - [ ] The star count of the target repo is not a reason to pad the description, their rule is concise, and
       the version above is longer than that rule wants. Trim the Evidence paragraph to a single sentence if a
       maintainer pushes back rather than defending it
+- [ ] PR #43 is open against the old text (0.1.1, eight invariants, 53 checks). Either refresh its body with
+      the block above or leave it, but do not let the submitted version and this file disagree
 
 ## Why not the skills repo
 

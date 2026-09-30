@@ -27,6 +27,8 @@ export interface CursorEntry {
 
 const MAX_GAPS = 50;
 
+export const CURSOR_NETWORKS: CursorNetwork[] = ["mainnet", "testnet", "devnet"];
+
 export function cursorPath(): string | null {
   const override = process.env.CHASE_WATCH_CURSOR_FILE;
   if (override !== undefined) {
@@ -38,52 +40,165 @@ export function cursorPath(): string | null {
   return path.join(base, "chase", "watch-cursor.json");
 }
 
-function readAll(): Record<string, CursorEntry> {
-  const p = cursorPath();
-  if (!p || !fs.existsSync(p)) return {};
+type CursorFileRead =
+  | { kind: "absent" | "ok"; all: Record<string, CursorEntry> }
+  | { kind: "error"; message: string };
+
+function readCursorFile(p: string): CursorFileRead {
+  if (!fs.existsSync(p)) return { kind: "absent", all: {} };
   try {
     const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (typeof parsed !== "object" || parsed === null) throw new Error("not an object");
-    return parsed;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("not a JSON object");
+    }
+    return { kind: "ok", all: parsed as Record<string, CursorEntry> };
   } catch (err: any) {
+    return { kind: "error", message: String(err?.message ?? err) };
+  }
+}
+
+function readAll(): Record<string, CursorEntry> {
+  const p = cursorPath();
+  if (!p) return {};
+  const read = readCursorFile(p);
+  if (read.kind === "error") {
     // A silent fallback here would resume from tip-2 and make the uncovered range disappear, which
     // is the failure this whole file exists to prevent.
     console.error(
-      `[chase] could not read the saved cursor (${p}): ${err?.message ?? err}. ` +
+      `[chase] could not read the saved cursor (${p}): ${read.message}. ` +
         `Starting fresh, and the gap since your last run is not covered.`
     );
     return {};
   }
+  return read.all;
 }
 
-export function loadCursor(network: CursorNetwork): CursorEntry | null {
-  const entry = readAll()[network];
-  if (!entry || !/^\d+$/.test(String(entry.checkpoint))) return null;
+/** A stored record the reader cannot use is `null`, never a guessed position. */
+function coerceEntry(raw: any): CursorEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  if (!/^\d+$/.test(String(raw.checkpoint))) return null;
   return {
-    checkpoint: String(entry.checkpoint),
-    savedAt: String(entry.savedAt ?? "unknown"),
-    gaps: Array.isArray(entry.gaps) ? entry.gaps.map(String) : [],
+    checkpoint: String(raw.checkpoint),
+    savedAt: String(raw.savedAt ?? "unknown"),
+    gaps: Array.isArray(raw.gaps) ? raw.gaps.map(String) : [],
   };
 }
 
+export function loadCursor(network: CursorNetwork): CursorEntry | null {
+  return coerceEntry(readAll()[network]);
+}
+
 /** Written as tmp + rename: a torn cursor reads as no cursor, and resumes from tip-2 in silence. */
-export function saveCursor(network: CursorNetwork, checkpoint: bigint, gaps: string[] = []): void {
+function writeAll(all: Record<string, CursorEntry>): string | null {
   const p = cursorPath();
-  if (!p) return;
+  if (!p) return "cursor saving is disabled (CHASE_WATCH_CURSOR_FILE='')";
   try {
-    const all = readAll();
-    all[network] = {
-      checkpoint: checkpoint.toString(),
-      savedAt: new Date().toISOString(),
-      gaps: gaps.slice(-MAX_GAPS),
-    };
     fs.mkdirSync(path.dirname(p), { recursive: true });
     const tmp = `${p}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(all, null, 2) + "\n", { mode: 0o600 });
     fs.renameSync(tmp, p);
-  } catch {
-    // A cursor that will not write degrades to "no cursor", which every caller must then say.
+    return null;
+  } catch (err: any) {
+    return String(err?.message ?? err);
   }
+}
+
+export function saveCursor(network: CursorNetwork, checkpoint: bigint, gaps: string[] = []): void {
+  const p = cursorPath();
+  if (!p) return;
+  const all = readAll();
+  all[network] = {
+    checkpoint: checkpoint.toString(),
+    savedAt: new Date().toISOString(),
+    gaps: gaps.slice(-MAX_GAPS),
+  };
+  // A cursor that will not write degrades to "no cursor", which every caller must then say. The run
+  // keeps going; `--status` and the closing summary read the position back off disk, so what they
+  // print is what was stored rather than what this call intended.
+  void writeAll(all);
+}
+
+export type CursorState = "saved" | "absent" | "unreadable" | "disabled";
+
+export interface CursorStatus {
+  path: string | null;
+  network: CursorNetwork;
+  state: CursorState;
+  entry: CursorEntry | null;
+  /** Why a record could not be used, when it could not. */
+  detail?: string;
+}
+
+/**
+ * Read-only view of the stored position, for `chase watch --status` and `chase cache`. It reports
+ * the four situations a cursor can be in rather than collapsing "nothing saved" and "unreadable"
+ * into one: the first means start fresh, the second means somebody should look at this file.
+ */
+export function cursorStatus(network: CursorNetwork): CursorStatus {
+  const path = cursorPath();
+  if (!path) return { path: null, network, state: "disabled", entry: null };
+  const read = readCursorFile(path);
+  if (read.kind === "error") {
+    return { path, network, state: "unreadable", entry: null, detail: read.message };
+  }
+  const raw = read.all[network];
+  if (raw === undefined) {
+    return { path, network, state: "absent", entry: null };
+  }
+  const entry = coerceEntry(raw);
+  if (!entry) {
+    return {
+      path,
+      network,
+      state: "unreadable",
+      entry: null,
+      detail: `the stored record has no usable checkpoint field`,
+    };
+  }
+  return { path, network, state: "saved", entry };
+}
+
+/** One line per network, for `chase cache`. Derived from the same read as `--status`, not a second copy. */
+export function describeCursor(network: CursorNetwork): string {
+  const s = cursorStatus(network);
+  if (s.state === "disabled") return `${network}: no cursor file (saving is disabled)`;
+  if (s.state === "absent") return `${network}: nothing saved`;
+  if (s.state === "unreadable" || !s.entry) return `${network}: stored record unusable (${s.detail})`;
+  return (
+    `${network}: next checkpoint ${s.entry.checkpoint} (saved ${s.entry.savedAt}` +
+    `${s.entry.gaps.length ? `, ${s.entry.gaps.length} gap(s)` : ""})`
+  );
+}
+
+export interface CursorRemoval {
+  path: string | null;
+  removed: boolean;
+  entry: CursorEntry | null;
+  /** Set when nothing was removed because the store could not be read or written. */
+  detail?: string;
+}
+
+/**
+ * Forget one network's position. Other networks in the same file are left alone, and a file this
+ * cannot parse is left on disk: deleting a document we could not read would also delete whatever
+ * the other networks had saved in it, which is not what a reset asks for.
+ */
+export function clearCursor(network: CursorNetwork): CursorRemoval {
+  const path = cursorPath();
+  if (!path) {
+    return { path: null, removed: false, entry: null, detail: "cursor saving is disabled, so there is nothing to reset" };
+  }
+  const read = readCursorFile(path);
+  if (read.kind === "error") {
+    return { path, removed: false, entry: null, detail: read.message };
+  }
+  const raw = read.all[network];
+  if (raw === undefined) return { path, removed: false, entry: null };
+  const entry = coerceEntry(raw);
+  delete read.all[network];
+  const failed = writeAll(read.all);
+  if (failed) return { path, removed: false, entry, detail: failed };
+  return { path, removed: true, entry };
 }
 
 export interface WatchStart {

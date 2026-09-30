@@ -1,6 +1,6 @@
 ---
 name: chase
-description: "Dynamic analysis of Sui Move transactions. Fetches a transaction's real execution trace over gRPC, runs eleven deterministic invariant checks on what actually executed, scores findings into tiers P0 to P3 or NOISE with a recommended action, and can run a budget-bounded scout agent that watches a package across checkpoints. Complements static analysis by reasoning about behaviour after deployment instead of source before it. Triggers on 'chase', 'dynamic analysis', 'what did this transaction do', 'Sui trace', 'Sui Move audit', 'monitor this package', 'post-exploit analysis', 'analyze this digest', 'is this protocol being exploited'."
+description: "Dynamic analysis of Sui Move transactions. Fetches a transaction's real execution trace over gRPC, runs eleven deterministic invariant checks on what actually executed, scores findings into tiers P0 to P3 or NOISE with a recommended action, reads named transactions the way an investigator reads one, and can run a budget-bounded scout agent that watches a package across checkpoints. Complements static analysis by reasoning about behaviour after deployment instead of source before it. Triggers on 'chase', 'dynamic analysis', 'what did this transaction do', 'Sui trace', 'Sui Move audit', 'monitor this package', 'post-exploit analysis', 'analyze this digest', 'read these transactions', 'is this protocol being exploited'."
 ---
 
 # Chase
@@ -19,6 +19,7 @@ saying it looks at the attacks that failed.
 | "What did this transaction actually do?" | `chase_analyze` on the digest |
 | "Is anyone calling this protocol strangely right now?" | `chase_hunt` with a mandate and a budget |
 | "Was this exploit real, or is it noise being confident?" | `chase_triage`, which scores, suppresses known benign shapes, and names an action |
+| "Read these three transactions and tell me what is in them" | `chase_investigate`, which is the reading without the sweep, and costs one trace fetch each |
 | Post-incident review of a known attack transaction | `chase_analyze`, reverted included |
 | A transaction you met during an audit and want checked at runtime | `chase_analyze` |
 
@@ -107,10 +108,11 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
 |---|---|---|
 | `chase_analyze` | `digest`, `network`, `debug`, `useCache` | violations with severity and evidence, stats, sender, and the success flag |
 | `chase_triage` | `digests[]`, `network`, `explain`, `minTier` | findings with `tier`, `score`, `nextAction`, `rationale`, caveats, and `skipped[]` for digests that could not be analyzed |
+| `chase_investigate` | `digests[]` (up to 10), `network`, `mode` | one trace fetch per digest, then the commands in order, the packages by call count, the coin movements, what changed hands, the names each high-severity signal matched, and the verdict asked of the layer you named. Each reading carries `source` and `escalated`, and anything it could not read comes back under `notRead` with a reason |
 | `chase_list` | `startCheckpoint`, `endCheckpoint`, `network`, `limit`, optional `target` and `inspect` | digests in range, plus, when `target` and `inspect` are both given, which inspected transactions actually involved that package, and a `presenceClaim` |
-| `chase_watch` | `from`, `to`, `network`, optional `filter` | findings in a bounded checkpoint range, with coverage counts |
+| `chase_watch` | `from`, `to`, `network`, optional `filter` | findings in a bounded checkpoint range, with coverage counts. Stateless: it does not touch the position the `chase watch` CLI keeps |
 | `chase_hunt` | `target` or `txs` (an explicit digest list), `checkpoints`, `goal`, `mode`, budget (`maxRpcCalls`, `maxLlmCalls`, `maxLlmTokens`, `maxWallMs`, optional `reserveForJudge`) | the scout's report: decisions, findings with tiers, investigator readings on P0 to P2, coverage, budget used |
-| `chase_query` | nothing | signature cache size and cache directory |
+| `chase_query` | nothing | signature cache size, cache directory, and where `chase watch` left off per network (read only) |
 
 ## How to run an agent workflow
 
@@ -121,15 +123,22 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
    input here, not a reason to move on.
 3. **Triage.** `chase_triage` turns raw violations into a tier and an action. Read `rationale`, which
    shows the arithmetic instead of announcing a conclusion.
-4. **Escalate with the right vocabulary.** `ESCALATE` means a human should look at this. It does not mean
+4. **Read the ones that matter.** `chase_investigate` takes up to ten digests and returns what each
+   transaction contained, plus a verdict and the layer that formed it. Ask for `mode: "rules"` unless a
+   model reading is specifically wanted: the rules layer needs no key, repeats exactly, and answers
+   `needs-review` when a high-severity signal rested on a function name alone, which is the honest
+   answer and not a shrug. Check `source` before you quote a reading, and check `escalated` before you
+   call it something a scout would have escalated.
+5. **Escalate with the right vocabulary.** `ESCALATE` means a human should look at this. It does not mean
    a vulnerability was found, and the difference is the whole product.
-5. **For continuous monitoring**, `chase_hunt` with a mandate and a budget. Several narrow hunts beat one
+6. **For continuous monitoring**, `chase_hunt` with a mandate and a budget. Several narrow hunts beat one
    wide one, because a listing returns at most 500 transactions per call and says `complete=false` when it
    stops early, so a wide range gets sampled at the top and reported as if it were swept.
-6. **When specific transactions are already in question**, pass `txs` instead of a target. The scout
-   analyzes exactly those digests in one pass, with no checkpoint sweep and no target filter. Use this
-   instead of a window hunt when somebody hands you digests, because "I looked at these" and "I swept a
-   range" are different claims and the report keeps them apart (`Scope: N explicit transaction(s), 1 pass`,
+7. **When specific transactions are already in question**, pass `txs` to `chase_hunt` instead of a target,
+   or `chase_investigate` if you want the reading without the tiering ceremony. The scout analyzes exactly
+   those digests in one pass, with no checkpoint sweep and no target filter. Use this instead of a window
+   hunt when somebody hands you digests, because "I looked at these" and "I swept a range" are different
+   claims and the report keeps them apart (`Scope: N explicit transaction(s), 1 pass`,
    `Covered: seq n/a-n/a (0 wide)`).
 
 ## Reading the output honestly

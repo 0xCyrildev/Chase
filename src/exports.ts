@@ -23,6 +23,21 @@ export { allInvariants } from "./invariants/index.js";
 export { isDigest, assertDigest } from "./lib/digest.js";
 export { triage } from "./triage/index.js";
 export { scout, type ScoutLLM, type ScoutOptions, type SummaryOutcome } from "./agent/scout.js";
+/**
+ * The investigator on its own, because it is a layer rather than a detail of the scout: `scout` decides
+ * what to read, `investigate` reads what you already named. Same one-fetch shape as `chase_investigate`,
+ * so a script, an MCP client and the CLI can reach the same reading.
+ */
+export {
+  investigate,
+  readTransaction,
+  type FindingForInvestigation,
+  type InvestigationEvidence,
+  type InvestigationInput,
+  type InvestigationOutcome,
+  type InvestigationResult,
+  type InvestigationSource,
+} from "./agent/investigator.js";
 export { RuleBasedLLM } from "./agent/rules-llm.js";
 export { StubLLM } from "./agent/stub-llm.js";
 export { RealLLM } from "./agent/llm.js";

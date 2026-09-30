@@ -22,7 +22,7 @@ after deployment, against real execution, where the arguments and return values 
 | 11 invariant checks over the gRPC execution trace, producing 12 violation types | violations with severity and evidence, plus the resolved signature of every MoveCall in the PTB |
 | Triage | a score from 0 to 100, a tier from P0 through P3 down to NOISE, a `nextAction` of DISMISS, MANUAL_REVIEW or ESCALATE, written rationale showing the arithmetic, benign-pattern suppression, and caveats |
 | Scout (`chase hunt`) | a bounded agent that lists checkpoints, matches a target, analyzes, triages, hands P0 to P2 findings to an investigator, and decides when it is done, all under hard budgets on RPC calls, LLM calls, tokens and wall-clock time |
-| MCP server | six tools callable from Claude Code, Cursor, Codex or any orchestrator that can speak stdio |
+| MCP server | seven tools callable from Claude Code, Cursor, Codex or any orchestrator that can speak stdio, including the investigator on its own (`chase_investigate`), so an agent can read named transactions without running a sweep |
 
 The shape of it is deliberate: deterministic detection, then deterministic triage, then optional model
 reasoning on top. The model explains and prioritises what the checks found. It never gets to decide what
@@ -115,17 +115,18 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
 ## Proof it works
 
 - `npm test` runs four suites, all offline against committed traces: 12 invariant fixtures, 13 triage
-  cases, 258 regression checks, and budget unit checks. The regression suite covers target matching, budget
+  cases, 318 regression checks, and budget unit checks. The regression suite covers target matching, budget
   reservation, the corroboration independence rules, the whole scan to triage to escalate chain including
   the investigator's reading, the batch output contract, CLI argument validation, dry-run coverage,
-  manifest and lockfile agreement, the owner-kind vocabulary, a real cache round trip, and the watch loop
-  driven against a fake checkpoint listing.
+  manifest and lockfile agreement, the owner-kind vocabulary, a real cache round trip, the watch cursor
+  store, and the watch loop driven against a fake checkpoint listing, bounded ranges included.
 - Every violation type has a committed trace asserting it fires. Seven types come from a synthetic Move
   package published to testnet, whose source ships under `test-cases/synthetic-leak/`. Five come from
   organic mainnet transactions, because a synthetic trigger would overstate what those checks prove, and an
   organic case is a characterisation control rather than a demonstration that the detector catches exploits.
-- `npm run mcp:selftest` runs 9 checks over stdio with no network, and `npm run mcp:selftest:live` runs 18
-  against mainnet, including a positive control that a target really is found in real transactions.
+- `npm run mcp:selftest` runs 24 checks over stdio with no network, covering all seven tools, and
+  `npm run mcp:selftest:live` runs 33 against mainnet, including a positive control that a target really
+  is found in real transactions.
 - `npm run smoke:live` analyzes uncached transactions from a current checkpoint, which is the only thing
   that can notice a retention window change, a gRPC shape break, or an endpoint that stopped answering.
 - Detection quality is measured instead of asserted. `npm run corpus` runs the full pipeline over every

@@ -5,14 +5,60 @@ measurement says what it was taken over. Corpus figures come from `npm run corpu
 invariant and triage pipeline over the local mainnet trace cache offline, with the novelty history disabled
 so two runs compare.
 
-## 0.2.3
+## 0.3.0
 
-**A hint that does not claim a diagnosis.** The failed-analysis coverage line said "every listed digest
-failed, which is what a list spanning two networks looks like", stated as a fact about the cause. Reading
-this release's own example, the cause was retention, the testnet transactions are simply gone, so the
-wording became "which is *also* what a list spanning two networks looks like". Naming the axis a reader
-needs is useful, asserting a cause the trace cannot see is not, and the README example now shows the
-difference rather than hiding it.
+**The investigator is callable, the watch position is a thing you can look at, and the MCP surface says
+what its own documentation already promised.**
+
+0.2.3 was committed and never published, so its one line ships here too: the failed-analysis coverage
+hint used to state "every listed digest failed, which is what a list spanning two networks looks like"
+as a fact about the cause. This release's own example had a different cause (retention, the testnet
+transactions are simply gone), so the wording now says *also*, which names the axis a reader needs
+without asserting a diagnosis the trace cannot see.
+
+- **`chase_investigate`, a seventh MCP tool.** Reading P0 to P2 transactions was the scout's private
+  business: an orchestrator could ask for analysis, triage, a listing, a watch range or a hunt, and
+  could not ask "read these three digests the way the escalated path reads one". It costs one trace
+  fetch per digest, returns the commands in order, the packages by call count, the coin movements, what
+  changed hands, the names each high-severity signal fired on, and the verdict with `source` attached so
+  a rules-table answer cannot be quoted as a model's. `mode` picks the layer. A digest with nothing to
+  read is returned under `notRead` with its reason rather than going missing, because an absent finding
+  and a clean transaction look identical to anything automating this.
+- **Three documented MCP inputs that did not exist now do.** `chase_triage` accepts `explain` and returns
+  the `skipped` list its own skill documentation promised; `chase_hunt` accepts `txs` and
+  `reserveForJudge`; `chase_analyze` honours `useCache`. The `txs` path is the one that mattered: post-
+  incident review hands an agent digests, not a package to sweep, and until now the only way to get that
+  reading through MCP was a live checkpoint hunt.
+- **`chase watch --to <seq>` bounds a range, and refuses to pretend about the tip.** A range that runs
+  past the endpoint's tip used to be walkable: the loop would list checkpoints that do not exist yet,
+  print 0 txs for each and advance the cursor over them, which is a monitor recording coverage the chain
+  never had. It now re-checks the tip when it reaches the edge (so a chain that catches up mid-run is
+  used rather than assumed), stops, names the part it could not scan, leaves the cursor at the first
+  unread checkpoint and exits 2. `--to` before the start is refused outright, since a run that scans
+  nothing while printing a tidy summary is the one report format that lies. `--limit` cutting a range
+  short stays exit 0: that is a stop you asked for.
+- **`chase watch --status` and `--reset-cursor`.** The position an interrupted monitor saved was
+  invisible except by watching the next run resume. `--status` prints the file it read, the next
+  checkpoint, when it was saved and how many gaps are recorded, and makes no network call, so the
+  question stays answerable while the endpoint is down. `--reset-cursor` forgets one network's position,
+  prints what it removed and the `--from` value that would recover it, never deletes a store it could not
+  parse (the other networks live in that same file), and passing it together with `--status` is refused,
+  because one is a question and the other is a deletion. `chase cache` prints the same state read-only,
+  and `chase cache --clear` says plainly that it did not touch it.
+- One validation path that called `process.exit` directly now goes through the injected `exit` seam, so
+  the offline watch tests can see the same refusal a user sees.
+- Regression checks 274 → 318, and the MCP selftest went from 9 offline checks to 24 (33 with
+  `CHASE_MCP_LIVE=1`). The new coverage is the cursor store and its reset paths, bounded `--to` ranges
+  driven through the fake ledger including the tip re-check, and the investigation surviving an MCP
+  round trip with its evidence and its provenance intact, which was the last layer of this tool that no
+  automated test had ever read.
+- Detection output is unchanged, and this time it was measured rather than asserted. The local cache is a
+  living corpus (it stood at 6,643 mainnet traces after this release's own live `chase watch` proof), so
+  comparing against a row from an earlier run says nothing. Instead: `npm run corpus` from this tree, and the
+  same command from a worktree of the previous commit, over the identical cache. Both printed
+  896 flagged transactions (13.5%), 2,256 findings, worst tier per transaction P1=4 P2=0 P3=407 NOISE=485,
+  16 high-severity findings and the same ten per-type counts, line for line. Nothing in this release touches
+  an invariant or a scoring rule, and that is now a measurement instead of a promise.
 
 ## 0.2.2
 

@@ -1,6 +1,14 @@
 import { TraceFetcher, NonProgrammableTransaction } from "../lib/fetcher.js";
 import { runAnalysis, resolveNetwork, Network } from "./analyze.js";
-import { cursorPath, loadCursor, saveCursor, resolveWatchStart, CursorNetwork } from "../lib/cursor.js";
+import {
+  CursorNetwork,
+  clearCursor,
+  cursorPath,
+  cursorStatus,
+  loadCursor,
+  saveCursor,
+  resolveWatchStart,
+} from "../lib/cursor.js";
 
 /**
  * Injectable so the loop can be driven offline against committed fixtures. `chase watch` had no
@@ -22,16 +30,54 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface WatchOptions {
   from?: string;
+  /** Last checkpoint to read, inclusive. Without it the run watches until interrupted. */
+  to?: string;
   filter?: string;
   limit?: string;
   network?: Network;
+  /** Report the stored position and leave. Makes no network call. */
+  status?: boolean;
+  /** Forget the stored position for this network and leave. */
+  resetCursor?: boolean;
 }
 
 export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
   const network = resolveNetwork(opts.network);
-  const fetcher = deps.fetcher ?? new TraceFetcher(network, true);
+  const net = network as CursorNetwork;
   const sleep = deps.sleep ?? wait;
   const exit = deps.exit ?? ((code: number) => process.exit(code) as never);
+
+  if (opts.status && opts.resetCursor) {
+    console.error(
+      `[chase] --status and --reset-cursor together is one question and one deletion. Ask them ` +
+        `separately, so you can see what was there before you removed it.`
+    );
+    exit(2);
+    return;
+  }
+
+  if (opts.status || opts.resetCursor) {
+    // Nothing here opens a socket: a question about local state that answers itself must not fail
+    // because the endpoint is down, and must not be billed as a scan.
+    const asked = opts.status ? "--status" : "--reset-cursor";
+    if (opts.status) {
+      reportCursor(net);
+    } else {
+      const code = resetCursor(net);
+      if (code !== 0) {
+        exit(code);
+        return;
+      }
+    }
+    const ignored = ["from", "to", "filter", "limit"].filter((f) => (opts as any)[f] !== undefined);
+    console.error(`[chase] no scan ran (${asked})`);
+    if (ignored.length) {
+      console.error(
+        `[chase] ${ignored.map((f) => `--${f}`).join(" ")} were ignored: ${asked} reads local state and scans nothing`
+      );
+    }
+    return;
+  }
 
   let limit: number;
   if (opts.limit === undefined) {
@@ -40,11 +86,20 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
     limit = Number(opts.limit);
     if (!Number.isInteger(limit) || limit < 1) {
       console.error(`[chase] --limit must be a positive whole number, got: ${opts.limit}`);
-      process.exit(2);
+      exit(2);
+      return;
     }
   }
 
-  const { current, lowest } = await fetcher.getCheckpointHeight();
+  let bound: bigint | undefined;
+  if (opts.to !== undefined) {
+    if (!/^\d+$/.test(opts.to.trim())) {
+      console.error(`[chase] --to must be a checkpoint number, got: ${opts.to}`);
+      exit(2);
+      return;
+    }
+    bound = BigInt(opts.to.trim());
+  }
 
   let flag: bigint | undefined;
   if (opts.from !== undefined) {
@@ -54,20 +109,35 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
       return;
     }
     flag = BigInt(opts.from.trim());
-    if (lowest > 0n && flag < lowest) {
-      console.error(
-        `[chase] --from ${flag} is below this endpoint's retention floor (${lowest}); ` +
-          `those checkpoints would silently yield nothing. Start at ${lowest} or use the archive endpoint.`
-      );
-      exit(2);
-      return;
-    }
+  }
+
+  const fetcher = deps.fetcher ?? new TraceFetcher(network, true);
+
+  const { current, lowest } = await fetcher.getCheckpointHeight();
+  let tip = current;
+
+  if (flag !== undefined && lowest > 0n && flag < lowest) {
+    console.error(
+      `[chase] --from ${flag} is below this endpoint's retention floor (${lowest}); ` +
+        `those checkpoints would silently yield nothing. Start at ${lowest} or use the archive endpoint.`
+    );
+    exit(2);
+    return;
+  }
+
+  if (bound !== undefined && lowest > 0n && bound < lowest) {
+    console.error(
+      `[chase] --to ${bound} is below this endpoint's retention floor (${lowest}), so the whole range ` +
+        `would yield nothing. Point SUI_ARCHIVE_URL at a node that still has it.`
+    );
+    exit(2);
+    return;
   }
 
   const start = resolveWatchStart({
     flag,
-    saved: loadCursor(network as CursorNetwork),
-    current,
+    saved: loadCursor(net),
+    current: tip,
     lowest,
     path: cursorPath(),
   });
@@ -85,15 +155,30 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
     exit(start.exitCode);
     return;
   }
-  console.error(`[chase] watching ${network} from checkpoint ${cursor} (tip=${current}, lowest=${lowest})`);
+
+  // A range that ends before it starts is a run that scans nothing and prints a summary as though
+  // it had. Refuse rather than produce an empty report with a clean coverage line.
+  if (bound !== undefined && bound < cursor) {
+    console.error(
+      `[chase] --to ${bound} is before ${cursor}, the first checkpoint this run would read, so nothing ` +
+        `would be scanned. Widen the range, or pass --from <checkpoint> to name the range you mean.`
+    );
+    exit(2);
+    return;
+  }
+
+  console.error(
+    `[chase] watching ${network} from checkpoint ${cursor}${bound !== undefined ? ` to ${bound}` : ""} (tip=${tip}, lowest=${lowest})`
+  );
 
   let processed = 0;
   const unreadable: string[] = [];
   const empty: string[] = [];
   let totalChecked = 0;
   let totalFlagged = 0;
+  /** A sentence explaining why the requested range was not delivered, when it was not. */
+  let stoppedBeforeBound: string | undefined;
 
-  const net = network as CursorNetwork;
   const cursorState = () => {
     if (!cursorPath()) return "not saved (cursor disabled by CHASE_WATCH_CURSOR_FILE='')";
     const at = loadCursor(net);
@@ -102,7 +187,11 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
 
   // The stored position is the NEXT checkpoint to attempt, which is the same statement as "every
   // checkpoint before this one had its transactions attempted" plus the gaps recorded beside it.
-  const persist = () => saveCursor(net, cursor, gaps);
+  let persisted = false;
+  const persist = () => {
+    persisted = true;
+    saveCursor(net, cursor, gaps);
+  };
 
   const summary = (how: string) =>
     console.error(
@@ -119,7 +208,28 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
     process.exit(130);
   });
 
-  while (processed < limit) {
+  while (processed < limit && (bound === undefined || cursor <= bound)) {
+    if (bound !== undefined && cursor > tip) {
+      // The chain may have caught up while this run worked. Re-check the tip rather than walking
+      // through checkpoints that do not exist yet and recording them as attempted: an advance past
+      // a nonexistent range reads as coverage the endpoint never had.
+      try {
+        tip = (await fetcher.getCheckpointHeight()).current;
+      } catch (err: any) {
+        stoppedBeforeBound =
+          `--to ${bound} was not reached and the tip could not be re-checked ` +
+          `(${String(err?.message ?? err).slice(0, 120)}), so the run stopped at ${cursor} rather ` +
+          `than guessing at what exists above it`;
+        break;
+      }
+      if (cursor > tip) {
+        stoppedBeforeBound =
+          `--to ${bound} was not reached: this endpoint's tip is ${tip}, so ${cursor}..${bound} ` +
+          `do not exist yet and were not scanned`;
+        break;
+      }
+    }
+
     let digests: string[] = [];
     try {
       digests = await fetcher.getCheckpointTransactions(cursor);
@@ -141,7 +251,7 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
     if (digests.length === 0) {
       empty.push(cursor.toString());
       console.error(`[chase] checkpoint ${cursor}: 0 txs (empty or not yet indexed)`);
-      if (cursor >= current) {
+      if (cursor >= tip) {
         await sleep(2000);
       }
     } else {
@@ -195,12 +305,112 @@ export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
     persist();
   }
 
-  summary("watched");
+  summary(
+    stoppedBeforeBound !== undefined
+      ? "watched as far as this endpoint has data"
+      : bound !== undefined
+        ? "watched the requested range"
+        : "watched"
+  );
 
+  // Two different reasons a range ends early, and they want different answers. `--limit` is a stop
+  // the operator asked for, so the run did what it was told and exits clean. Not reaching `--to`
+  // because the chain is not there yet is a range that was asked for and not delivered.
+  if (bound !== undefined && stoppedBeforeBound === undefined && cursor <= bound) {
+    console.error(
+      `[chase] --limit stopped the run at ${cursor}; --to ${bound} was not reached, and the cursor is ` +
+        `saved there so the next run continues from it`
+    );
+  }
+
+  const incomplete: string[] = [];
+  if (stoppedBeforeBound) incomplete.push(stoppedBeforeBound);
   if (unreadable.length > 0) {
-    console.error("[chase] coverage was incomplete, so this run did not survey the whole range");
+    incomplete.push(`${unreadable.length} checkpoint(s) could not be read [${unreadable.join(", ")}]`);
+  }
+  for (const line of incomplete) {
+    console.error(`[chase] coverage was incomplete: ${line}`);
+  }
+  if (incomplete.length > 0) {
+    console.error(
+      persisted
+        ? `[chase] so this run did not survey the whole range, and the position is saved at ${cursor}, ` +
+            `which is where a re-run picks up`
+        : `[chase] so this run did not survey the whole range, and it saved no position either: the ` +
+            `checkpoints from ${cursor} upward are still unclaimed. A re-run with the same --from starts here.`
+    );
     exit(2);
   }
+}
+
+function reportCursor(network: CursorNetwork) {
+  const s = cursorStatus(network);
+  console.error(`[chase] watch position on ${network}`);
+  if (s.state === "disabled") {
+    console.error(
+      `[chase]   no cursor file: CHASE_WATCH_CURSOR_FILE is set to the empty string, so nothing is remembered`
+    );
+    console.error(`[chase]   every run starts at tip-2, and a restart re-reads the last two checkpoints`);
+    return;
+  }
+  console.error(`[chase]   file: ${s.path}`);
+  if (s.state === "absent") {
+    console.error(`[chase]   nothing saved for ${network}; the next run starts at tip-2`);
+    return;
+  }
+  if (s.state === "unreadable" || !s.entry) {
+    console.error(`[chase]   the stored ${network} record could not be used: ${s.detail}`);
+    console.error(
+      `[chase]   reset it on purpose with: chase watch --reset-cursor -n ${network} ` +
+        `(that drops the position and starts from tip-2), or --from <checkpoint> to name where to resume`
+    );
+    return;
+  }
+  console.error(
+    `[chase]   next checkpoint to attempt: ${s.entry.checkpoint} (saved ${s.entry.savedAt})`
+  );
+  console.error(
+    `[chase]   every checkpoint below it was attempted${
+      s.entry.gaps.length ? `, and ${s.entry.gaps.length} of them could not be read` : ", with no recorded gaps"
+    }${s.entry.gaps.length ? `: ${s.entry.gaps.slice(0, 12).join(", ")}${s.entry.gaps.length > 12 ? " …" : ""}` : ""}`
+  );
+  console.error(`[chase]   to forget it: chase watch --reset-cursor -n ${network}`);
+}
+
+/** Returns the exit code the command should leave with: 0 when the reset happened or nothing asked for it. */
+function resetCursor(network: CursorNetwork): number {
+  const r = clearCursor(network);
+  if (r.path === null) {
+    console.error(
+      `[chase] nothing to reset: CHASE_WATCH_CURSOR_FILE is the empty string, so no position is kept anyway`
+    );
+    return 0;
+  }
+  if (!r.removed) {
+    if (r.entry === null && r.detail === undefined) {
+      console.error(`[chase] nothing saved for ${network} at ${r.path}, so there was nothing to reset`);
+      return 0;
+    }
+    // Never report a reset that did not happen. The file stays exactly as it was.
+    console.error(
+      `[chase] could not reset the ${network} position (${r.path}): ${r.detail}. ` +
+        `Nothing was deleted; the file still holds what it held before.`
+    );
+    return 2;
+  }
+  if (r.entry === null) {
+    console.error(`[chase] removed an unreadable stored record for ${network} from ${r.path}`);
+    return 0;
+  }
+  console.error(
+    `[chase] forgot the ${network} position (was ${r.entry.checkpoint}, saved ${r.entry.savedAt}` +
+      `${r.entry.gaps.length ? `, with ${r.entry.gaps.length} recorded gap(s)` : ""})`
+  );
+  console.error(
+    `[chase] the next run starts at tip-2, so everything above ${r.entry.checkpoint} is now ` +
+      `unclaimed. To go back for it on purpose: chase watch --from ${BigInt(r.entry.checkpoint)}`
+  );
+  return 0;
 }
 
 interface WatchViolation {

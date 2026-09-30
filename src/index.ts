@@ -8,6 +8,7 @@ import { watchCommand } from "./commands/watch.js";
 import { printBanner } from "./lib/banner.js";
 import { VERSION } from "./lib/version.js";
 import { clearCache, cacheDir } from "./lib/cache.js";
+import { CURSOR_NETWORKS, cursorPath, describeCursor } from "./lib/cursor.js";
 import { clearSignatureCache, signatureCacheSize } from "./lib/sigcache.js";
 import { registerTriage } from "./triage/command.js";
 import { registerHunt } from "./agent/command.js";
@@ -60,8 +61,11 @@ program
   .command("watch")
   .description("Scan new checkpoints, running invariants on each transaction (resumes from the last one it finished)")
   .option("--from <seq>", "Start at this checkpoint; does not rewind the saved cursor (set CHASE_WATCH_CURSOR_FILE='' to disable saving)")
+  .option("--to <seq>", "Stop after this checkpoint (inclusive). A range that runs past the endpoint's tip stops there and says which part was not scanned")
   .option("--filter <substring>", "Only report findings whose evidence matches this substring")
   .option("--limit <n>", "Stop after processing N checkpoints")
+  .option("--status", "Print where this network's scan stopped, then leave. Makes no network call")
+  .option("--reset-cursor", "Forget this network's saved position, then leave. The next run starts at tip-2")
   .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet); defaults to $SUI_NETWORK, then mainnet")
   .action(async (opts) => {
     printBanner();
@@ -96,10 +100,23 @@ program
             `and had survived --clear until now`
         );
       }
+      // Wiping the traces is not wiping the position: a cleared cache means the next scan refetches,
+      // not that it forgot where it had got to. Deleting that unasked would turn a monitor's resume
+      // into a two-checkpoint re-read with no warning.
+      console.error(
+        `[chase] watch positions were not touched; to forget one: chase watch --reset-cursor -n <network>`
+      );
       return;
     }
     console.error(`[chase] cache dir: ${cacheDir()}`);
     console.error(`[chase] signatures cached: ${signatureCacheSize()}`);
+    const cursorFile = cursorPath();
+    console.error(
+      `[chase] watch cursor: ${cursorFile ?? "disabled (CHASE_WATCH_CURSOR_FILE='')"}`
+    );
+    for (const network of CURSOR_NETWORKS) {
+      console.error(`[chase]   ${describeCursor(network)}`);
+    }
     console.error(`[chase] use --clear to wipe, --dir to print path`);
   });
 
