@@ -74,20 +74,55 @@ export function saveTrace(trace: SuiTransactionTrace): void {
   }
 }
 
-export function clearCache(): number {
-  let count = 0;
+export interface CacheClearing {
+  traces: number;
+  /** Traces written before records were namespaced by network; `loadTrace` cannot read them. */
+  unreachableTraces: number;
+  checkpoints: number;
+}
+
+function unlinkJson(dir: string): number {
+  if (!fs.existsSync(dir)) return 0;
+  let n = 0;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      fs.unlinkSync(path.join(dir, f));
+      n++;
+    } catch {}
+  }
+  return n;
+}
+
+export function clearCache(): CacheClearing {
+  const counts: CacheClearing = { traces: 0, unreachableTraces: 0, checkpoints: 0 };
+
   for (const network of ["mainnet", "testnet", "devnet"] as CacheNetwork[]) {
-    const dir = networkDir(network);
-    if (!fs.existsSync(dir)) continue;
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith(".json")) continue;
+    counts.traces += unlinkJson(networkDir(network));
+  }
+
+  // Anything left as a loose file at the cache root is either a pre-namespacing trace (no
+  // `network` field, so loadTrace never resolves it) or a checkpoint listing. Both used to
+  // survive `--clear`, which then reported a wiped cache while they stayed on disk.
+  // signatures.json is excluded: the signature cache owns that path and clears itself.
+  if (fs.existsSync(CACHE_DIR)) {
+    for (const entry of fs.readdirSync(CACHE_DIR, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      if (entry.name === "signatures.json") continue;
       try {
-        fs.unlinkSync(path.join(dir, f));
-        count++;
+        fs.unlinkSync(path.join(CACHE_DIR, entry.name));
+        counts.unreachableTraces++;
       } catch {}
     }
+
+    const checkpointDir = path.join(CACHE_DIR, "checkpoints");
+    counts.checkpoints = unlinkJson(checkpointDir);
+    try {
+      fs.rmSync(checkpointDir, { recursive: true, force: true });
+    } catch {}
   }
-  return count;
+
+  return counts;
 }
 
 export function cacheDir(): string {

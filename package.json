@@ -48,7 +48,7 @@
     "batch": "tsx src/index.ts batch",
     "watch": "tsx src/index.ts watch",
     "cache": "tsx src/index.ts cache",
-    "build": "tsc && node scripts/copy-assets.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-assets.mjs",
     "prepare": "npm run build",
     "start": "node dist/index.js",
     "mcp": "tsx src/mcp-server.ts",

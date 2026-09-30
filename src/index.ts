@@ -84,9 +84,18 @@ program
       return;
     }
     if (opts.clear) {
-      const n = clearCache();
+      const c = clearCache();
       const s = clearSignatureCache();
-      console.error(`[chase] removed ${n} cached trace(s), ${s} cached signature(s)`);
+      console.error(
+        `[chase] removed ${c.traces} cached trace(s), ${s} cached signature(s)`
+      );
+      if (c.unreachableTraces > 0 || c.checkpoints > 0) {
+        console.error(
+          `[chase] also removed ${c.unreachableTraces} trace file(s) left over from before traces were ` +
+            `namespaced by network and ${c.checkpoints} checkpoint listing(s) — these were unreadable ` +
+            `and had survived --clear until now`
+        );
+      }
       return;
     }
     console.error(`[chase] cache dir: ${cacheDir()}`);

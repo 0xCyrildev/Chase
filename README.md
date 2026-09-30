@@ -694,7 +694,6 @@ src/
 │   ├── llm.ts                  # real-mode decisions (OpenAI-compatible)
 │   ├── rules-llm.ts            # deterministic default mode
 │   ├── stub-llm.ts             # fixed responses, for tests
-│   ├── checkpoint-cache.ts     # cached checkpoint listings, 5-minute TTL
 │   ├── report-md.ts            # markdown report + coverage caveats
 │   └── types.ts                # mandate/report/decision types
 └── invariants/
@@ -717,18 +716,23 @@ keyed by `package::module::function`.
 
 Chase caches two things on disk:
 
-- Normalized traces at `~/.cache/chase/<digest>.json`
+- Normalized traces at `~/.cache/chase/<network>/<digest>.json`
 - Move function signatures at `~/.cache/chase/signatures.json`
 
 Repeat analyses of the same digest are near-instant and avoid hitting the
 public fullnode. Signature resolution is skipped entirely for functions
-already cached.
+already cached. Traces are namespaced by network, because the same digest
+requested on two networks must never resolve to one record.
 
 ```bash
 npm run cache -- --dir      # print cache location
 npm run cache -- --clear    # wipe traces and signatures
 npm run cache                # show signature count
 ```
+
+`--clear` also sweeps files the cache no longer reads: traces written at the
+cache root before namespacing existed, and checkpoint listings. Both used to
+survive a wipe that reported itself complete.
 
 Override the cache directory with `CHASE_CACHE_DIR`. Bypass trace cache with
 `--no-cache`.
