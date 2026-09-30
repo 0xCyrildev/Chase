@@ -371,6 +371,17 @@ for (const f of ["src/invariants/ownership-anomaly.ts", "src/invariants/capabili
 }
 
 check("an address owner yields its address", ownerAddress({ $kind: "AddressOwner", AddressOwner: "0xabc" }) === "0xabc");
+// The nesting is the whole story: an object owned by a consensus address IS owned by an address,
+// and reading nothing here made such an object look like it had no address owner any more — the
+// exact condition both ownership rules branch on.
+check(
+  "a consensus-address owner yields the address it nests",
+  ownerAddress({ $kind: "ConsensusAddressOwner", ConsensusAddressOwner: { startVersion: "7", owner: "0xdef" } }) === "0xdef"
+);
+check(
+  "a consensus address is its own kind, not flattened into a plain address",
+  ownerKindOf({ $kind: "ConsensusAddressOwner", ConsensusAddressOwner: { owner: "0xdef" } }) === "consensus-address"
+);
 // ObjectOwner's value is an object id. Putting it in `recipient` would make a wrapped object read
 // as a transfer to an address, which is a different claim than the one the field makes.
 check("an object owner never becomes a recipient", ownerAddress({ $kind: "ObjectOwner", ObjectOwner: "0xdead" }) === undefined);

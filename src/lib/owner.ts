@@ -15,7 +15,13 @@ export const SDK_OWNER_KINDS = [
   "ConsensusAddressOwner",
 ] as const;
 
-export type OwnerKind = "address" | "object" | "immutable" | "shared" | "unresolved";
+export type OwnerKind =
+  | "address"
+  | "consensus-address"
+  | "object"
+  | "immutable"
+  | "shared"
+  | "unresolved";
 
 export function ownerKindOf(owner: any): OwnerKind | undefined {
   switch (owner?.$kind) {
@@ -27,6 +33,8 @@ export function ownerKindOf(owner: any): OwnerKind | undefined {
       return "immutable";
     case "Shared":
       return "shared";
+    case "ConsensusAddressOwner":
+      return "consensus-address";
     default:
       return undefined;
   }
@@ -34,6 +42,10 @@ export function ownerKindOf(owner: any): OwnerKind | undefined {
 
 /**
  * The address behind an owner, when an address is what owns it.
+ *
+ * A consensus-address-owned object *is* owned by an address — the SDK nests it one level down at
+ * `.ConsensusAddressOwner.owner`. Reading nothing there made such an object look like it had no
+ * address owner any more, which is precisely the condition the ownership rules branch on.
  *
  * `ObjectOwner` deliberately returns nothing: its value is an object id, and putting that in a
  * field named `recipient` would make a wrapped object read as a transfer to an address.
@@ -44,24 +56,33 @@ export function ownerAddress(owner: any): string | undefined {
   if (owner.$kind === "AddressOwner" && typeof owner.AddressOwner === "string") {
     return owner.AddressOwner;
   }
+  if (
+    owner.$kind === "ConsensusAddressOwner" &&
+    typeof owner.ConsensusAddressOwner?.owner === "string"
+  ) {
+    return owner.ConsensusAddressOwner.owner;
+  }
   return undefined;
 }
 
 /**
- * Output owner of one object change, as far as this trace can say. `recipient` is only populated
- * for an address owner, so it short-circuits the classification; otherwise the kind is recovered
- * from the raw response while it is still attached.
+ * Output owner of one object change, as far as this trace can say. The owner shape is read first
+ * so a consensus-address owner stays distinguishable from a plain one; `recipient` is the fallback
+ * proof that *an* address owns it, not a classification.
  */
 export function outputOwnerKind(
   trace: SuiTransactionTrace,
   change: ObjectChange
 ): OwnerKind {
-  if (change.recipient) return "address";
-
   const raw: any = trace.raw;
   const changed: any[] | undefined = raw?.effects?.changedObjects;
-  if (!Array.isArray(changed)) return "unresolved";
+  if (Array.isArray(changed)) {
+    const hit = changed.find((o) => o?.objectId === change.objectId);
+    const kind = ownerKindOf(hit?.outputOwner);
+    if (kind) return kind;
+  }
 
-  const hit = changed.find((o) => o?.objectId === change.objectId);
-  return ownerKindOf(hit?.outputOwner) ?? "unresolved";
+  // No owner shape to read: an address in `recipient` still proves *an* address owns it.
+  if (change.recipient) return "address";
+  return "unresolved";
 }
