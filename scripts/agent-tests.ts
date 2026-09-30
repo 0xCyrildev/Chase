@@ -454,6 +454,83 @@ try {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
 
+console.log("\ndetector declarations (triage must have an opinion about every type)");
+
+const { allInvariants } = await import("../src/invariants/index.js");
+const { EXPECTED_OVERLAP } = await import("../src/triage/enrich.js");
+const triageConfig = JSON.parse(
+  fs.readFileSync(path.join(ROOT, "src", "triage", "triage.config.json"), "utf8")
+);
+const knownTxs = JSON.parse(fs.readFileSync(path.join(ROOT, "test-cases", "known-txs.json"), "utf8"));
+const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+const declared = allInvariants.flatMap((c: any) =>
+  (c.emits ?? []).map((e: any) => ({ checker: c.name, ...e }))
+);
+const modifier = triageConfig.confidenceModifier;
+const weight = triageConfig.severityWeights;
+
+// Types whose fixture is a triage case rather than an analyze case, or which have no positive
+// control in this repo yet. Anything absent from both lists must be asserted by known-txs.json,
+// or this gate is checking an empty set and passing.
+const NO_POSITIVE_CONTROL: string[] = [];
+
+check("every checker declares at least one type", allInvariants.every((c: any) => (c.emits ?? []).length > 0));
+
+for (const e of declared) {
+  check(`${e.type} has a deliberate confidenceModifier`, Object.prototype.hasOwnProperty.call(modifier, e.type), "scoring falls back to ?? 0 and the detector is silently ignored");
+  check(`${e.type} severity has a weight`, typeof weight[e.severity] === "number", `severity=${e.severity}`);
+}
+
+const owners = new Map<string, string[]>();
+for (const e of declared) owners.set(e.type, [...(owners.get(e.type) ?? []), e.checker]);
+for (const [t, cs] of owners) {
+  check(`${t} is claimed by exactly one checker`, cs.length === 1, cs.join(", "));
+}
+
+for (const [a, b] of EXPECTED_OVERLAP as [string, string][]) {
+  for (const t of [a, b]) {
+    check(`overlap names a declared type: ${t}`, owners.has(t), "a typo here silently re-enables corroboration inflation");
+  }
+}
+
+for (const key of Object.keys(modifier)) {
+  check(`no orphan confidenceModifier: ${key}`, owners.has(key), "a retired detector keeps scoring");
+}
+
+for (const c of allInvariants) {
+  check(`README documents the ${c.name} check`, readme.includes(`### ${c.name}`));
+}
+
+const asserted = new Set(
+  (Array.isArray(knownTxs) ? knownTxs : (knownTxs.cases ?? [])).flatMap(
+    (k: any) => k.expectViolationTypes ?? []
+  )
+);
+for (const t of owners.keys()) {
+  check(
+    `${t} has a positive control or is listed as uncontrolled`,
+    asserted.has(t) || NO_POSITIVE_CONTROL.includes(t),
+    asserted.has(t) ? "" : "add a fixture case or say why not in NO_POSITIVE_CONTROL"
+  );
+}
+
+// Declarations can drift from code: scripts/ is never typechecked, so scan the source text too.
+for (const f of fs.readdirSync(path.join(ROOT, "src", "invariants"))) {
+  if (!f.endsWith(".ts") || f === "index.ts") continue;
+  const text = fs.readFileSync(path.join(ROOT, "src", "invariants", f), "utf8");
+  const checker = allInvariants.find((c: any) => c.name === f.replace(/\.ts$/, "").replace(/_/g, "-"));
+  if (!checker) continue;
+  const literals = [...text.matchAll(/type: "([A-Z][A-Z0-9_]+)"/g)].map((m: any) => m[1]);
+  for (const lit of new Set(literals)) {
+    check(
+      `${f} declares the type it emits: ${lit}`,
+      (checker as any).emits.some((e: any) => e.type === lit),
+      "emitted but undeclared — it will score with the default modifier"
+    );
+  }
+}
+
 console.log("\ndry-run coverage (the published artifact surfaced this one)");
 
 const { scout } = await import("../src/agent/scout.js");

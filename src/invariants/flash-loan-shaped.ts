@@ -18,6 +18,7 @@ export const flashLoanShaped: InvariantChecker = {
   name: "flash-loan-shaped",
   description:
     "Flags borrow -> action -> repay sequences within a single PTB (flash loan pattern)",
+  emits: [{ type: "FLASH_LOAN_SHAPED", severity: "medium" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const cmds = trace.ptbCommands;
     const violations: Violation[] = [];

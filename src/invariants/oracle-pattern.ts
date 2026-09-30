@@ -21,6 +21,7 @@ export const oraclePattern: InvariantChecker = {
   name: "oracle-pattern",
   description:
     "Detects an oracle update followed by a DeFi action anywhere later in the same PTB (manipulation suspect)",
+  emits: [{ type: "ORACLE_MANIPULATION_SUSPECTED", severity: "high" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const cmds = trace.ptbCommands;

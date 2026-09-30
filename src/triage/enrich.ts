@@ -66,13 +66,21 @@ function distinctDetectors(
  * and keeps any genuinely orthogonal signal: CAPABILITY_TRANSFER, MUTABLE_REFERENCE_RETURNED,
  * ORACLE_MANIPULATION_SUSPECTED and UNEXPECTED_TRANSFER are not in this list.
  */
+/**
+ * Pairs that describe the *same construct*, so they are one opinion and must not corroborate each
+ * other. Data rather than a function body because the test suite reads it: a typo here silently
+ * re-enables the corroboration inflation this table exists to prevent.
+ */
+export const EXPECTED_OVERLAP: [string, string][] = [
+  ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
+  ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
+  ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
+  ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
+  ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],
+];
+
 function isExpectedOverlap(a: string, b: string): boolean {
-  const pairs: [string, string][] = [
-    ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
-    ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
-    ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
-    ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
-    ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],
-  ];
-  return pairs.some(([x, y]) => (a === x && b === y) || (a === y && b === x));
+  return EXPECTED_OVERLAP.some(
+    ([x, y]) => (a === x && b === y) || (a === y && b === x)
+  );
 }

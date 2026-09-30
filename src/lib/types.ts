@@ -44,9 +44,22 @@ export type OwnerKind =
   | "unresolved"
   | "unrecorded";
 
+/** One violation type a checker can emit, with the severity it emits it at. */
+export interface Emission {
+  type: string;
+  severity: Severity;
+}
+
 export interface InvariantChecker {
   name: string;
   description: string;
+  /**
+   * Declared, not inferred. Triage scores an unknown violation type with a silent `?? 0`
+   * confidence modifier, so a detector that emits a type nobody configured looks exactly like a
+   * detector that was configured to be ignored. Requiring this field moves that mistake from a
+   * quiet scoring artifact to a compile error in the one directory CI typechecks.
+   */
+  emits: Emission[];
   check: (trace: SuiTransactionTrace) => Violation[];
 }
 

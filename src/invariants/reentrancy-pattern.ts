@@ -27,6 +27,7 @@ export const reentrancyPattern: InvariantChecker = {
   name: "reentrancy-pattern",
   description:
     "Flags A -> B -> A call sequences where the same function is re-entered after an intervening call to a different function",
+  emits: [{ type: "REENTRANCY_PATTERN", severity: "medium" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const cmds = trace.ptbCommands;

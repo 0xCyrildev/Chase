@@ -6,6 +6,7 @@ export const ownershipAnomaly: InvariantChecker = {
   description:
     "Flags pre-existing objects whose ownership moved to an address that did not participate in the " +
     "transaction, or out of the sender's address ownership into a non-address owner",
+  emits: [{ type: "UNEXPECTED_TRANSFER", severity: "medium" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const participants = new Set<string>([trace.sender]);

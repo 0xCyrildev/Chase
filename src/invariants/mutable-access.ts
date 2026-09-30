@@ -33,6 +33,7 @@ export const mutableAccess: InvariantChecker = {
     "Flags non-framework packages whose entry points hand a mutable reference (&mut) back to the calling " +
     "transaction (the public vs public(package) bug class). The callee package is recorded, together with the " +
     "other non-framework packages invoked in the same PTB, which are the ones that could consume that reference.",
+  emits: [{ type: "MUTABLE_REFERENCE_RETURNED", severity: "high" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const sender = trace.sender;

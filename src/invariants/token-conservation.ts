@@ -7,6 +7,7 @@ export const tokenConservation: InvariantChecker = {
   name: "address-balance-delta",
   description:
     "Flags coin types where an address loses more than it receives within the tx (may indicate shared-object outflow or genuine leak)",
+  emits: [{ type: "ADDRESS_OUTFLOW", severity: "low" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
 

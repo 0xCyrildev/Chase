@@ -29,6 +29,7 @@ const THRESHOLD = 5;
 export const repeatedModuleCalls: InvariantChecker = {
   name: "repeated-module-calls",
   description: `Flags PTBs that call into the same non-system module ${THRESHOLD}+ times`,
+  emits: [{ type: "REPEATED_MODULE_CALLS", severity: "low" }],
   check(trace: SuiTransactionTrace): Violation[] {
     const violations: Violation[] = [];
     const counts = new Map<string, number>();
