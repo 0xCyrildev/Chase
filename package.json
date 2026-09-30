@@ -1,6 +1,6 @@
 {
   "name": "@zeroxcyril/chase",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Chase — dynamic analysis for Sui Move transactions. Invariant checks over real execution traces, deterministic triage, and a budget-bounded scout agent. CLI, library and MCP server.",
   "keywords": [
     "sui",

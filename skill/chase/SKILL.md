@@ -1,6 +1,6 @@
 ---
 name: chase
-description: "Dynamic analysis of Sui Move transactions: fetches a transaction's real execution trace over gRPC, runs eight deterministic invariant checks on what actually executed, scores findings into tiers P0-P3/NOISE with a recommended action, and can run a budget-bounded scout agent that watches a package across checkpoints. Complements static analysis by reasoning about behaviour after deployment instead of source before it. Triggers on 'chase', 'dynamic analysis', 'what did this transaction do', 'Sui trace', 'Sui Move audit', 'monitor this package', 'post-exploit analysis', 'analyze this digest', 'is this protocol being exploited'."
+description: "Dynamic analysis of Sui Move transactions: fetches a transaction's real execution trace over gRPC, runs eleven deterministic invariant checks on what actually executed, scores findings into tiers P0-P3/NOISE with a recommended action, and can run a budget-bounded scout agent that watches a package across checkpoints. Complements static analysis by reasoning about behaviour after deployment instead of source before it. Triggers on 'chase', 'dynamic analysis', 'what did this transaction do', 'Sui trace', 'Sui Move audit', 'monitor this package', 'post-exploit analysis', 'analyze this digest', 'is this protocol being exploited'."
 ---
 
 # Chase
@@ -161,8 +161,12 @@ Every layer keeps its own uncertainty visible. Do not flatten it.
 Three detectors are keyword-based by design. They produce triage signals, never verdicts, and the
 benign-pattern library exists to suppress the ones that recur.
 
-All eight have positive controls: a synthetic Move package published to testnet that fires each detector
-on demand (source in the Chase repo at `test-cases/synthetic-leak/`), asserted by nine offline fixtures
+Every detector has a fixture that asserts it fires, but two kinds of control are named separately: seven
+types come from a synthetic Move package published to testnet (source in the Chase repo at
+`test-cases/synthetic-leak/`), and five — the two balance checks plus the field/silence checks — come from
+organic mainnet transactions, because a synthetic trigger would overstate what they prove. An organic
+case is a *characterisation* control: the detector fires on real data of that shape, which is not the same
+claim as "it catches an exploit". Twelve committed traces assert all twelve violation types
 that run without network access.
 
 ## Limits to state in any report

@@ -31,7 +31,7 @@ not: another static auditor.
 > actually happened — including transactions that reverted, which is where attempted exploits live.
 >
 > Three layers, each callable independently and each exposed over MCP so an orchestrator can route into
-> them: 8 deterministic invariants → a deterministic triage layer that scores, tiers (P0–P3/NOISE) and
+> them: 11 deterministic invariants → a deterministic triage layer that scores, tiers (P0–P3/NOISE) and
 > recommends an action → a budget-bounded scout agent that watches a package across checkpoints and
 > decides what to scan and when to stop.
 >
@@ -57,8 +57,8 @@ not: another static auditor.
 > volume is matched against the trace's call/event/object-type positions, so a protocol reachable only
 > through another package's internal calls is invisible.
 >
-> Evidence: public MIT repo; CI on every push (typecheck + four suites — 9 invariant fixtures, 10 triage
-> fixtures, 86 agent/CLI/detector checks, budget units — all offline against committed traces, and a
+> Evidence: public MIT repo; CI on every push (typecheck + four suites — 12 invariant fixtures, 13 triage
+> fixtures, 245 agent/CLI/detector/coverage checks, budget units — all offline against committed traces, and a
 > fresh clone needs no `.env`); positive controls for all eight detectors from synthetic packages
 > published to testnet; a 9-check MCP selftest over stdio; `npm run smoke:live` against uncached mainnet
 > transactions; and detection quality measured rather than asserted — 3,616 organic mainnet

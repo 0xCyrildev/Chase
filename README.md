@@ -262,13 +262,17 @@ matcher was fixed.
 Chase ships with eleven invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
-All ten have a fixture that asserts the detector fires: synthetic Move packages
-published to testnet that trigger each detector on demand. The two balance
-checks (`address-balance-delta`, `coin-net-imbalance`) have no clean synthetic
-trigger because the false-positive class is inherent to how gRPC surfaces
-balance changes — they are asserted against an organic mainnet transaction
-instead, which is a characterisation fixture, not proof that the detector
-catches an exploit.
+All eleven have a fixture asserting they fire — 12 violation types between them,
+and every one of those types is asserted by a committed trace. Seven types come
+from synthetic Move packages published to testnet that trigger each detector on
+demand. Five do not, because a synthetic trigger would be dishonest: the two
+balance checks (`address-balance-delta`, `coin-net-imbalance`) inherit their
+false-positive class from how gRPC surfaces balance changes, and the
+field/silence checks fire on ordinary order-book traffic. Those are asserted
+against organic mainnet transactions, which is a *characterisation* control — it
+proves the detector fires on real data of that shape, not that it catches an
+exploit. Two kinds of control are different claims and are labelled separately
+wherever they appear.
 
 ### address-balance-delta
 
@@ -343,8 +347,9 @@ reports, the event type and the event `packageId`, because the latter carries th
 **Measured:** 38 transactions (0.58%). The obvious rule is the one this is not. "The transaction
 emitted no events" fires on **588 transactions (9.04%)** with 2,266 object changes behind them, and
 **39% of all mainnet traffic emits nothing at all**, so silence is ordinary behaviour, not a
-deviation — and that shape fires on six of this repo's own nine synthetic fixtures, because the test
-package does not emit. A detector like that does not find anything; it raises tiers.
+deviation — and that shape fires on seven of this repo's own twelve committed fixtures (six of
+the seven synthetic testnet ones, plus one organic order cancel), because the test
+package does not emit at all. A detector like that does not find anything; it raises tiers.
 
 What it says instead of nothing: the report carries `silentObjectChanges` and prints a note when the
 transaction changed typed non-framework objects without emitting a single event. That is stated as an
@@ -793,6 +798,8 @@ src/
 │   ├── cache.ts                # on-disk trace cache
 │   ├── concurrency.ts          # bounded parallel map
 │   ├── digest.ts               # digest shape check (they become cache paths)
+│   ├── cursor.ts               # watch position: per network, XDG_DATA_HOME
+│   ├── owner.ts                # the SDK's five owner shapes, recorded not derived
 │   ├── fetcher.ts              # gRPC fetch + normalize + signature resolver
 │   ├── reporter.ts             # human and JSON output
 │   ├── sigcache.ts             # persisted signature cache
@@ -873,10 +880,15 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ```bash
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
-npm run test:agent        # target matching, budget reserve, investigator (reading,
-                          # evidence and provenance), detector keyword shapes, batch
-                          # shape, CLI validation, dry-run coverage, manifest/lock
-                          # agreement, endpoint configuration
+npm run test:agent        # 245 checks: target matching, budget reserve, investigator
+                          # (reading, evidence, provenance), detector keyword shapes,
+                          # batch shape, CLI validation, dry-run coverage, manifest/lock
+                          # agreement, endpoint configuration, owner vocabulary and
+                          # owner recording (incl. a real save->load round trip), the
+                          # declaration gate (every emitted type has a deliberate triage
+                          # entry, exactly one owner, a README row and a fixture), and
+                          # the watch cursor -- including the loop itself, offline,
+                          # through injected fetcher/sleep/exit seams
 npx tsx scripts/test-budget.ts   # Budget unit checks (rpc/llm/token/time)
 ```
 
@@ -903,29 +915,36 @@ fixture can see.
 Detection quality is measured, not asserted, and the measurement is offline:
 
 ```bash
-node scripts/corpus-report.mjs after   # over whatever is in the trace cache
+npm run corpus -- after      # over whatever is in the trace cache
 ```
 
 It runs the full invariant + triage pipeline over every trace in the local cache
-(`~/.cache/chase/<network>`), with history disabled so two runs are comparable, and
+(`~/.cache/chase/<network>/`), with history disabled so two runs are comparable, and
 prints the flag rate, the worst tier per transaction, and the per-type breakdown. No
-RPC, and it repeats exactly. This is how a detector change gets priced: adding
+RPC, and it repeats exactly. Run it as `npm run corpus`, not `node
+scripts/corpus-report.mjs`: the script used to import `dist/`, which meant it priced
+whatever was last *built* rather than what you changed — adding a ninth invariant
+produced a byte-identical report, which looks exactly like a null result. This is how a detector change gets priced: adding
 `flash_swap` to the borrow keywords moved `FLASH_LOAN_SHAPED` from 90 to 154 findings
 and the flag rate from 10.0% to 10.9% across 6,502 cached mainnet transactions, while
 high-severity findings stayed at 16 and the P1 count stayed at 4 — every added fire
-landed at P3.
+landed at P3. The whole 0.2.0 trail, including two escalations this command caught before
+they shipped, is kept in `reports/0.2.0-detector-pricing.md`.
 
-Nine cases:
+Twelve cases, twelve committed traces (the file this list is generated from):
 
-- **mainnet** - clean order cancel, no violations
-- **mainnet** - aggregator swap, produces `ADDRESS_OUTFLOW` and `REENTRANCY_PATTERN`
-- **testnet** - synthetic `leak::leak_mut`, produces `MUTABLE_REFERENCE_RETURNED`
-- **testnet** - synthetic `oracle::update_price` + `oracle::swap`, produces `ORACLE_MANIPULATION_SUSPECTED`
-- **testnet** - synthetic `gift::give` to a non-participant, produces `UNEXPECTED_TRANSFER`
-- **testnet** - synthetic `hop::first -> hop::second -> hop::first`, produces `REENTRANCY_PATTERN`
-- **testnet** - synthetic `flash::flash_borrow -> flash::swap -> flash::flash_repay`, produces `FLASH_LOAN_SHAPED`
-- **testnet** - synthetic `cap::give_cap` transferring `TreasuryCap` to a non-sender, produces `CAPABILITY_TRANSFER` and `UNEXPECTED_TRANSFER`
-- **testnet** - synthetic `repeat::bump` called 5x, produces `REPEATED_MODULE_CALLS`
+- **mainnet** — order cancel → no violations
+- **mainnet** — aggregator swap → `ADDRESS_OUTFLOW`, `COIN_NET_IMBALANCE`, `REENTRANCY_PATTERN`
+- **testnet** — synthetic public &mut leak → `MUTABLE_REFERENCE_RETURNED`
+- **testnet** — synthetic oracle update + swap → `ORACLE_MANIPULATION_SUSPECTED`
+- **testnet** — synthetic gift transfer to non-participant → `UNANNOUNCED_OBJECT_CHANGE`, `UNEXPECTED_TRANSFER`
+- **testnet** — synthetic A -> B -> A composition → `REENTRANCY_PATTERN`
+- **testnet** — synthetic borrow -> swap -> repay → `FLASH_LOAN_SHAPED`
+- **testnet** — synthetic TreasuryCap transfer → `CAPABILITY_TRANSFER`, `UNEXPECTED_TRANSFER`
+- **testnet** — synthetic repeated module calls → `REPEATED_MODULE_CALLS`
+- **mainnet** — order-book fill → `DYNAMIC_FIELD_CREATED`
+- **mainnet** — game round teardown → `COIN_NET_IMBALANCE`, `DYNAMIC_FIELD_CREATED`, `DYNAMIC_FIELD_DELETED`
+- **mainnet** — order cancel → `UNANNOUNCED_OBJECT_CHANGE`
 
 The seven testnet cases come from a package in `test-cases/synthetic-leak/`.
 Testnet is wiped periodically, so those digests may eventually stop
@@ -948,7 +967,7 @@ sui client publish --gas-budget 100000000
   without any token, but it also returns `not found` for digests the fullnode
   has pruned, including two of this repo's own mainnet fixtures. So the
   fallback is attempted and does not recover history; the error now says so
-  instead of reporting a bare second miss. Two of the nine fixtures can only be
+  instead of reporting a bare second miss. Two of the twelve committed traces can only be
   re-analysed because their traces are committed. The fix is an endpoint that
   keeps history: point `SUI_ARCHIVE_URL` at a provider archive (Triton,
   Quicknode) or your own archival node, and pruned digests resolve. A failure
@@ -1024,18 +1043,37 @@ sui client publish --gas-budget 100000000
 
 ## Roadmap
 
-- [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise
+- [ ] Reconstruct object-owned balances to reduce `address-balance-delta` noise.
+      **Partly answered, and only partly:** `coin-net-imbalance` now sums each
+      coin type across the address set (2.9% of traffic versus 1.9% for the
+      per-address rule) and names the transaction's non-framework calls as the
+      candidate mechanism. The real version needs object-side balances, which
+      are not in the trace at all — that requires widening the gRPC `include`
+      fields and re-fixturing, and was declined for this pass rather than left
+      unfixed by accident.
 - [x] Configurable RPC endpoints — `SUI_RPC_URL` / `SUI_ARCHIVE_URL` (0.1.4), so
       a Triton, Quicknode or self-run archive can be used for historical
       analysis. The public archive endpoint is reachable without a token but
       does not hold pruned digests, so a token would not have fixed the
       retention gap; an override is what does.
-- [ ] Persist checkpoint cursor across watch runs
-- [ ] Additional invariants: dynamic field abuse, event-less state changes
+- [x] Persist checkpoint cursor across watch runs (0.2.0) — per network, in
+      `$XDG_DATA_HOME`, resuming from the last checkpoint it actually finished
+      and refusing to clamp forward past the retention floor.
+- [x] Additional invariants: dynamic field abuse, event-less state changes
+      (0.2.0) — `dynamic-field-lifecycle` (create/delete, report-only) and
+      `silent-object-change` (0.58%, the narrowed end; the 9% "no events at all"
+      shape is printed as an observation instead of scored, because 39% of
+      traffic is silent and it fires on seven of this repo's own fixtures).
+      Field *keys* and true object balances remain out of reach without new
+      `include` fields.
 - [x] Publish to npm — `@zeroxcyril/chase`, installable and runnable via `npx`
       without a git clone
-- [ ] Scout agent: autonomous *target selection* (the scanning loop, budget and
-      triage pass shipped; the target still comes from the mandate)
+- [ ] Scout agent: autonomous *target selection* (the scanning loop, budget,
+      triage and investigation pass shipped; the target still comes from the
+      mandate). This is a design question, not a code drop: nothing ranks
+      packages across traces today, and "target required" is a deliberate
+      invariant, so autonomy has to be proposed-then-confirmed rather than the
+      scout picking its own subject.
 
 ## Development
 

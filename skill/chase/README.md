@@ -17,7 +17,7 @@ execution.
 
 | Layer | Output |
 |---|---|
-| 8 invariant checks over the gRPC execution trace | violations with severity, evidence, and the resolved signature of every MoveCall in the PTB |
+| 11 invariant checks (12 violation types) over the gRPC execution trace | violations with severity, evidence, and the resolved signature of every MoveCall in the PTB |
 | Triage | score 0–100, tier `P0`–`P3`/`NOISE`, `nextAction` (`DISMISS`/`MANUAL_REVIEW`/`ESCALATE`), written rationale, benign-pattern suppression, caveats |
 | Scout (`chase hunt`) | a bounded agent that lists checkpoints, matches a target, analyzes, triages, escalates P0–P2 to an investigator, and decides when to stop — under hard RPC/LLM/token/wall-clock budgets |
 | MCP server | six tools callable from Claude Code, Cursor, Codex or any orchestrator |
@@ -91,7 +91,7 @@ claude mcp add --transport stdio --scope user chase -- npx tsx /path/to/Chase/sr
 
 ## Proof it works
 
-- `npm test` → four suites: 9 invariant fixtures + 10 triage checks + 61 regression checks
+- `npm test` → four suites, all offline: 12 invariant fixtures + 13 triage cases + 245 regression checks + budget units
   (target matching, budgets, corroboration independence, the scan→triage→escalate chain including the
   investigator's verdict, batch contract, CLI validation, dry-run coverage) + budget unit checks — all
   **offline** against committed traces
