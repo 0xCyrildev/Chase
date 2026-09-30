@@ -24,6 +24,12 @@ export interface AnalysisReport {
     objectChanges: number;
     ptbCommands: number;
     events: number;
+    /**
+     * Typed non-framework objects this transaction mutated or destroyed while emitting no event at
+     * all. Counted, never scored: 39% of mainnet transactions emit nothing, so silence is ordinary
+     * and a clean report on a silent transaction must still say the transaction was silent.
+     */
+    silentObjectChanges: number;
   };
 }
 

@@ -53,11 +53,14 @@
       "label": "synthetic gift transfer to non-participant (testnet)",
       "network": "testnet",
       "expectViolationTypes": [
+        "UNANNOUNCED_OBJECT_CHANGE",
         "UNEXPECTED_TRANSFER"
       ],
       "expectTiers": [
+        "NOISE",
         "P3"
-      ]
+      ],
+      "note": "| now also fires silent-object-change (the synthetic package emits no events at all) and UNEXPECTED_TRANSFER stayed P3/35 exactly as before: measured here so the corroboration suppression is pinned, not trusted"
     },
     {
       "digest": "GoZD6MFDHs6b8u8WLtc7V74iSjwrS2XztXiqPyvPYzzd",
@@ -137,6 +140,18 @@
         "P3"
       ],
       "note": "Characterisation fixture from organic traffic. It covers the deletion path and the honest one at the same time: a destroyed field has no output owner, so its message says (unresolved, parent not recorded) rather than naming a parent it cannot see. Create+delete in one transaction is one teardown-and-replace construct, which is why the two types are corroboration-suppressed against each other."
+    },
+    {
+      "digest": "2UkzDTPuKXLX3JeWKXR7eUvpBqCtdDGkCW7PHWwBrEk8",
+      "label": "order cancel (mainnet, sender-held TradeCap mutated with no announcement from its package)",
+      "network": "mainnet",
+      "expectViolationTypes": [
+        "UNANNOUNCED_OBJECT_CHANGE"
+      ],
+      "expectTiers": [
+        "NOISE"
+      ],
+      "note": "Characterisation fixture from organic traffic, fetched after owner recording landed. A balance_manager::TradeCap was mutated by its owner and balance_manager said nothing; the transaction emitted no events at all, so stats.silentObjectChanges is 3 and the report prints the stated observation alongside the NOISE-scored finding."
     }
   ]
 }

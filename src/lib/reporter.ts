@@ -22,6 +22,15 @@ export function printReport(report: AnalysisReport): void {
     )
   );
 
+  if (report.stats.silentObjectChanges > 0) {
+    console.log(
+      pc.gray(
+        `Note:    ${report.stats.silentObjectChanges} object change(s) in this transaction and no event ` +
+          `emitted at all — stated, not scored (39% of mainnet traffic is silent this way)`
+      )
+    );
+  }
+
   if (report.detectorErrors?.length) {
     console.log(
       pc.red(

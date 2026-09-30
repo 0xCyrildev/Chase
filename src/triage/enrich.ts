@@ -83,6 +83,8 @@ export const EXPECTED_OVERLAP: [string, string][] = [
   // 16 transactions in the corpus both add and remove a field; teardown-and-replace is one
   // construct, and create+delete must not corroborate each other.
   ["DYNAMIC_FIELD_CREATED", "DYNAMIC_FIELD_DELETED"],
+  // The same object change seen as "who owns it now" and as "nobody announced it". One event.
+  ["UNANNOUNCED_OBJECT_CHANGE", "UNEXPECTED_TRANSFER"],
   ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
   ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
   ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],

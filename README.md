@@ -239,7 +239,7 @@ matcher was fixed.
 
 ## Invariants
 
-Chase ships with ten invariant checks. Each is intentionally conservative:
+Chase ships with eleven invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
 All ten have a fixture that asserts the detector fires: synthetic Move packages
@@ -311,6 +311,31 @@ and means nothing. Saying so beats omitting it silently.
 and neither is the parent when the object is not owned by another object. Those are named in the
 evidence as unrecorded rather than guessed. A created or deleted field is a state change with a
 legitimate routine explanation in most cases; the finding exists so a human can ask which one.
+
+### silent-object-change
+
+Reports a sender-held object that this transaction mutated or destroyed while **no event in the
+transaction came from the package that owns the object's type** — checked against both positions Sui
+reports, the event type and the event `packageId`, because the latter carries the *updated* package.
+
+**Severity:** low, `corroborates: false`, and a `-20` modifier: alone it lands at NOISE/0.
+
+**Measured:** 38 transactions (0.58%). The obvious rule is the one this is not. "The transaction
+emitted no events" fires on **588 transactions (9.04%)** with 2,266 object changes behind them, and
+**39% of all mainnet traffic emits nothing at all**, so silence is ordinary behaviour, not a
+deviation — and that shape fires on six of this repo's own nine synthetic fixtures, because the test
+package does not emit. A detector like that does not find anything; it raises tiers.
+
+What it says instead of nothing: the report carries `silentObjectChanges` and prints a note when the
+transaction changed typed non-framework objects without emitting a single event. That is stated as an
+observation with its corpus rate attached, because a clean report on a silent transaction should not
+read as a survey of an announceful one.
+
+The population that does fire is dominated by capability-*shaped* types on order books —
+`balance_manager::TradeCap`, `price_oracle::PriceFeederCap`, `authority::AuthorityCap`,
+`market::OrderCap`. "Capability-shaped" is deliberate: `capability-transfer` matches none of those
+names, and this check claims nothing about what they are. A silent update may be an intentional
+design choice; the finding says where to look, not what was wrong.
 
 ### mutable-access
 
@@ -521,6 +546,7 @@ invariant reflects how reliable the invariant is:
 | COIN_NET_IMBALANCE | 0 | Aggregated view of the same array; low severity keeps it out of P2 alone |
 | DYNAMIC_FIELD_CREATED | 0 | report-only: fires on 2% of traffic, so it must not raise priority |
 | DYNAMIC_FIELD_DELETED | 0 | report-only: same, 0.9% of traffic |
+| UNANNOUNCED_OBJECT_CHANGE | -20 | report-only: an absence, and silence is 39% of traffic |
 | ORACLE_MANIPULATION_SUSPECTED | -15 | Name-based |
 | FLASH_LOAN_SHAPED | -5 | Name-based |
 | ADDRESS_OUTFLOW | -20 | Fires on shared-object inflows |

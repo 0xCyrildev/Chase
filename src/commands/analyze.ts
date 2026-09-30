@@ -1,5 +1,6 @@
 import { TraceFetcher, NonProgrammableTransaction } from "../lib/fetcher.js";
 import { allInvariants } from "../invariants/index.js";
+import { objectChangesWithNoEventInTx } from "../invariants/silent-object-change.js";
 import { printReport, toJson } from "../lib/reporter.js";
 import { AnalysisReport, Violation } from "../lib/types.js";
 import fs from "node:fs";
@@ -142,6 +143,7 @@ export async function runAnalysis(
       objectChanges: trace.objectChanges.length,
       ptbCommands: trace.ptbCommands.length,
       events: trace.events.length,
+      silentObjectChanges: objectChangesWithNoEventInTx(trace),
     },
   };
 }
