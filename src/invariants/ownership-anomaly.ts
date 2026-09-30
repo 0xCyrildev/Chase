@@ -1,55 +1,5 @@
-import { InvariantChecker, ObjectChange, SuiTransactionTrace, Violation } from "../lib/types.js";
-
-/**
- * `recipient` is only populated when the output owner is an `AddressOwner` (see extractAddress in
- * src/lib/fetcher.ts). Objects that end up wrapped inside another object, parent-owned, immutable,
- * derived-address or shared all come back with `recipient === undefined`, which is *not* the same
- * as "nothing happened to it" — so the kind of the new owner is reported explicitly instead of
- * the detector silently skipping the change.
- */
-type OwnerKind =
-  | "address"
-  | "object"
-  | "parent"
-  | "immutable"
-  | "derived-address"
-  | "shared"
-  | "unresolved";
-
-function ownerKindOf(owner: any): OwnerKind | undefined {
-  switch (owner?.$kind) {
-    case "AddressOwner":
-      return "address";
-    case "ObjectOwner":
-      return "object";
-    case "Parent":
-      return "parent";
-    case "Immutable":
-      return "immutable";
-    case "DerivedAddress":
-      return "derived-address";
-    case "Shared":
-      return "shared";
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Recover the precise output-owner kind from the raw RPC response when it is still attached to the
- * trace. Cached traces are serialised without `raw`, in which case the kind stays `unresolved` and
- * the finding says so rather than guessing.
- */
-function outputOwnerKind(trace: SuiTransactionTrace, change: ObjectChange): OwnerKind {
-  if (change.recipient) return "address";
-
-  const raw: any = trace.raw;
-  const changed: any[] | undefined = raw?.effects?.changedObjects;
-  if (!Array.isArray(changed)) return "unresolved";
-
-  const hit = changed.find((o) => o?.objectId === change.objectId);
-  return ownerKindOf(hit?.outputOwner) ?? "unresolved";
-}
+import { InvariantChecker, SuiTransactionTrace, Violation } from "../lib/types.js";
+import { outputOwnerKind } from "../lib/owner.js";
 
 export const ownershipAnomaly: InvariantChecker = {
   name: "ownership-anomaly",

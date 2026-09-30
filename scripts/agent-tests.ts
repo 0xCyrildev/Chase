@@ -339,6 +339,42 @@ check(
 );
 check("an unreadable digest still carries its notes", unreadable.evidence.notes.length > 0, JSON.stringify(unreadable.evidence.notes).slice(0, 100));
 
+console.log("\nowner vocabulary (the kinds the SDK emits, not invented ones)");
+
+const { SDK_OWNER_KINDS, ownerKindOf, ownerAddress } = await import("../src/lib/owner.js");
+
+// mapOwner in @mysten/sui returns exactly these five shapes and throws on any other. Both
+// ownership rules used to switch on `Parent` and `DerivedAddress`, which appear nowhere in the
+// SDK: a branch that can never run still reads, to whoever is deciding whether an owner kind is
+// covered, like coverage the tool has.
+check(
+  "the owner kinds named here are the five the SDK can emit",
+  JSON.stringify([...SDK_OWNER_KINDS].sort()) ===
+    JSON.stringify(["AddressOwner", "ConsensusAddressOwner", "Immutable", "ObjectOwner", "Shared"]),
+  SDK_OWNER_KINDS.join(", ")
+);
+
+for (const invented of ["Parent", "DerivedAddress"]) {
+  check(
+    `ownerKindOf refuses the shape the SDK never emits: ${invented}`,
+    ownerKindOf({ $kind: invented }) === undefined,
+    String(ownerKindOf({ $kind: invented }))
+  );
+}
+
+for (const f of ["src/invariants/ownership-anomaly.ts", "src/invariants/capability-transfer.ts"]) {
+  const text = fs.readFileSync(path.join(ROOT, f), "utf8");
+  check(
+    `${f} reads one owner vocabulary instead of its own`,
+    !/type OwnerKind/.test(text) && !/function ownerKindOf/.test(text)
+  );
+}
+
+check("an address owner yields its address", ownerAddress({ $kind: "AddressOwner", AddressOwner: "0xabc" }) === "0xabc");
+// ObjectOwner's value is an object id. Putting it in `recipient` would make a wrapped object read
+// as a transfer to an address, which is a different claim than the one the field makes.
+check("an object owner never becomes a recipient", ownerAddress({ $kind: "ObjectOwner", ObjectOwner: "0xdead" }) === undefined);
+
 console.log("\ndry-run coverage (the published artifact surfaced this one)");
 
 const { scout } = await import("../src/agent/scout.js");

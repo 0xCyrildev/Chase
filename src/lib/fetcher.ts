@@ -8,6 +8,7 @@ import {
 } from "./types.js";
 import { loadTrace, saveTrace } from "./cache.js";
 import { assertDigest } from "./digest.js";
+import { ownerAddress } from "./owner.js";
 import { getSignature, setSignature } from "./sigcache.js";
 
 // sui.rpc.v2 QUERY_END_REASON_CHECKPOINT_BOUND — the requested range was walked to its bound.
@@ -316,8 +317,8 @@ export class TraceFetcher {
         objectId: o.objectId ?? "unknown",
         objectType: objectTypes[o.objectId] ?? "unknown",
         changeType,
-        sender: extractAddress(o.inputOwner),
-        recipient: extractAddress(o.outputOwner),
+        sender: ownerAddress(o.inputOwner),
+        recipient: ownerAddress(o.outputOwner),
       };
     });
 
@@ -413,11 +414,3 @@ export class TraceFetcher {
   }
 }
 
-function extractAddress(owner: any): string | undefined {
-  if (!owner) return undefined;
-  if (owner.$kind === "AddressOwner" && typeof owner.AddressOwner === "string") {
-    return owner.AddressOwner;
-  }
-  if (typeof owner === "string") return owner;
-  return undefined;
-}

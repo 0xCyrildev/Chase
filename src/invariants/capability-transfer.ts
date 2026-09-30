@@ -1,4 +1,5 @@
 import { InvariantChecker, ObjectChange, SuiTransactionTrace, Violation } from "../lib/types.js";
+import { outputOwnerKind } from "../lib/owner.js";
 
 const CAP_PATTERNS = [
   "::TreasuryCap",
@@ -24,51 +25,6 @@ function typeKnown(change: ObjectChange): boolean {
   return !!change.objectType && change.objectType !== "unknown";
 }
 
-/** See ownership-anomaly.ts: `recipient` only exists for AddressOwner outputs. */
-type OwnerKind =
-  | "address"
-  | "object"
-  | "parent"
-  | "immutable"
-  | "derived-address"
-  | "shared"
-  | "unresolved";
-
-function ownerKindOf(owner: any): OwnerKind | undefined {
-  switch (owner?.$kind) {
-    case "AddressOwner":
-      return "address";
-    case "ObjectOwner":
-      return "object";
-    case "Parent":
-      return "parent";
-    case "Immutable":
-      return "immutable";
-    case "DerivedAddress":
-      return "derived-address";
-    case "Shared":
-      return "shared";
-    default:
-      return undefined;
-  }
-}
-
-function outputOwnerKind(trace: SuiTransactionTrace, change: ObjectChange): OwnerKind {
-  if (change.recipient) return "address";
-
-  const raw: any = trace.raw;
-  const changed: any[] | undefined = raw?.effects?.changedObjects;
-  if (!Array.isArray(changed)) return "unresolved";
-
-  const hit = changed.find((o) => o?.objectId === change.objectId);
-  return ownerKindOf(hit?.outputOwner) ?? "unresolved";
-}
-/**
- * How much of this transaction the classifier could actually see. Capability detection is driven
- * entirely by objectType, and the RPC reports the literal string "unknown" for a slice of every
- * transaction's object changes; ownership is only readable when an AddressOwner is involved.
- * Carried in the evidence of every finding so a silent gap never reads as a clean bill of health.
- */
 function coverageOf(trace: SuiTransactionTrace) {
   const unresolvedObjectTypes = trace.objectChanges.filter((c) => !typeKnown(c)).length;
   const capabilities = trace.objectChanges.filter((c) => typeKnown(c) && isCapability(c.objectType));
