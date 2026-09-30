@@ -1231,7 +1231,8 @@ my protocol" is a support question, and it is a reasonable one, but it is not a 
 
 | Version | Status |
 |---|---|
-| 0.2.x | Current. Fixes land here first. |
+| 0.3.x | Current. Fixes land here first. |
+| 0.2.x | Unsupported, and still on npm. It is where the eleven invariant checks and the watch cursor landed, so nothing in it is broken by 0.3.0; it simply stops receiving fixes. |
 | 0.1.x | Unsupported. 0.1.0 through 0.1.3 each shipped a real defect that later releases fixed, including a hunt report that described an empty scan as complete and a corpus tool that measured stale build output. |
 
 Because this is a CLI and a library rather than a hosted service, "supported" mostly means the trace
