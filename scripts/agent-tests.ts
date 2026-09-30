@@ -765,6 +765,22 @@ check("package.json and the lockfile version agree", lockRoot.version === pkg.ve
 check("version.ts reads the same value the manifest declares", (await import("../src/lib/version.js")).VERSION === pkg.version);
 check("the package is scoped to the npm username, not the GitHub handle", pkg.name.startsWith("@zeroxcyril/"), pkg.name);
 
+// The bins ship in the tarball with whatever mode the build left them in. tsc emits 0644 with a
+// shebang, a global install hides that by chmodding its own link, and `npx @scope/pkg <bin>` execs
+// the file straight out of the cache and fails with "Permission denied". The quickstart line is
+// then wrong in a way no test would otherwise notice.
+const binMap: Record<string, string> = pkg.bin ?? {};
+check("package.json declares bins", Object.keys(binMap).length === 4, JSON.stringify(Object.keys(binMap)));
+for (const [name, rel] of Object.entries(binMap)) {
+  const file = path.join(ROOT, rel as string);
+  const exists = fs.existsSync(file);
+  check(`bin ${name} built`, exists, rel as string);
+  if (!exists) continue;
+  const mode = fs.statSync(file).mode;
+  check(`bin ${name} is executable (npx execs the file itself)`, (mode & 0o111) !== 0, `mode ${(mode & 0o777).toString(8)}`);
+  check(`bin ${name} carries a shebang`, fs.readFileSync(file, "utf8").startsWith("#!/usr/bin/env node"));
+}
+
 console.log("\nexplicit transaction list — the escalation path, offline");
 
 // The first version of this feature passed every eyeball test and did nothing: `--txs` parsed, the

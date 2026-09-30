@@ -1,6 +1,6 @@
 {
   "name": "@zeroxcyril/chase",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Chase — dynamic analysis for Sui Move transactions. Invariant checks over real execution traces, deterministic triage, and a budget-bounded scout agent. CLI, library and MCP server.",
   "keywords": [
     "sui",
@@ -48,7 +48,7 @@
     "batch": "tsx src/index.ts batch",
     "watch": "tsx src/index.ts watch",
     "cache": "tsx src/index.ts cache",
-    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-assets.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-assets.mjs && node scripts/mark-bins.mjs",
     "prepare": "npm run build",
     "start": "node dist/index.js",
     "mcp": "tsx src/mcp-server.ts",
