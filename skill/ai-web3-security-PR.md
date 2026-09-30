@@ -22,82 +22,60 @@ Chase is not, which is a fifth static auditor.
 | [0xCyrildev/Chase](https://github.com/0xCyrildev/Chase) | Agentic dynamic analysis of executed Sui Move transactions |
 ```
 
-## PR description
+## The submitted description
 
-> **Chase, dynamic analysis for Sui Move**
->
-> The Move and Sui entries in this list audit source. Chase audits execution. It pulls a transaction's real
-> execution trace over gRPC, resolves every MoveCall in the PTB, and runs invariant checks over what
-> actually happened, including transactions that reverted, which is where attempted exploits tend to sit.
->
-> Three layers, each callable on its own and all of them exposed over MCP so an orchestrator can route into
-> whichever one it needs: eleven deterministic invariants, then a deterministic triage layer that scores,
-> tiers and recommends an action, then a budget-bounded scout agent that watches a package across
-> checkpoints and decides what to scan and when to stop.
->
-> The scout is agentically shaped while the detection stays deterministic. There are hard limits on RPC
-> calls, LLM calls, tokens and wall time, the scan holds part of its budget back so findings come back
-> triaged rather than untiered, and a fallback decision prints as `[DEGRADED: not a model decision]` rather
-> than being passed off as reasoning. Coverage gets reported rather than assumed, so a run that reached 500
-> of several thousand transactions says `INCOMPLETE`, and a target it never matched says `EMPTY AGAINST THE
-> TARGET, not a clean scan`.
->
-> P0 to P2 findings escalate to an investigator that reads the transaction instead of re-scoring it. One
-> trace fetch, then the commands in order, the packages, the value movement, and the exact function names
-> each high severity signal matched. The verdict is asked of the decision layer over that evidence, which
-> means a rules table by default with no key and no spend, or a model on request, and every reading prints
-> which layer wrote it. That matters because the two disagree. On one organic mainnet P1 the deterministic
-> layer answered `needs-review`, because all three of its high severity signals were function-name matches,
-> while a model reading the same evidence answered `suspicious`. Neither is a vulnerability claim, and the
-> evidence line is what a human checks either way. The reading is a layer you can call on its own, seven
-> MCP tools in total, so an orchestrator can ask for it without running a sweep to get it.
->
-> Limits, stated rather than discovered: three detectors are keyword-based and will happily trip legitimate
-> protocols, `ADDRESS_OUTFLOW` is a heuristic because gRPC balance changes are address scoped, public
-> fullnodes prune about three weeks of history unless you point `SUI_RPC_URL` or `SUI_ARCHIVE_URL` at a
-> provider or your own archive, and routed volume is matched against the call, event and object type
-> positions in the trace, so a protocol reachable only inside another package's internal calls is invisible.
->
-> Evidence: public MIT repo. CI on every push, running typecheck plus four suites that are all offline
-> against committed traces, with 12 invariant fixtures, 13 triage cases and 318 regression checks. Every
-> violation type has a fixture asserting it fires, seven from synthetic packages published to testnet and
-> five from organic mainnet transactions, and the difference between those two kinds of control is spelled
-> out in the docs because they support different claims. There is a 24-check MCP selftest over stdio that
-> needs no network and a 33-check live variant, a smoke test against uncached mainnet transactions, and
-> detection quality is measured rather than argued: 3,616 organic mainnet transactions swept across the
-> retention window, and a 6,576-transaction offline corpus run is how the last few detector changes got
-> priced, including two escalations that were caught and reverted before release. That same corpus run is
-> what every release since re-measures, and the current figures, the flag rate included, are in
-> `CHANGELOG.md` beside the change that moved them.
->
-> One command, no clone, no key: `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
->
-> It also ships as an agent skill, `skill/chase/` in the repo: frontmatter and trigger phrases for when an
-> agent should reach for runtime evidence instead of a source audit, the tool table, how to read a coverage
-> line without over-claiming it, and two real hunt reports under `references/`, one that found signals and
-> one that found nothing. The empty one is in there on purpose, because an agent that has only ever seen a
-> successful scan will report an unscanned range as a clean one.
+This is the body PR #43 carries as of 2026-09-30, verbatim, after the refresh that replaced the
+0.1.1-era numbers. It is longer than their "concise" rule strictly wants; the row above is what the
+list actually shows, and the checklist says to trim this to one sentence if a maintainer pushes back
+rather than to defend the length.
 
-## Before opening it
+**Tool:** https://github.com/0xCyrildev/Chase (MIT, public)
+
+**One command, no clone, no key:** `npx -y @zeroxcyril/chase analyze <TX_DIGEST>`, live on npm as `@zeroxcyril/chase` (0.3.0). Any real mainnet digest works, and `npx -y @zeroxcyril/chase triage <digest> --min-tier P2` gives the prioritised view.
+
+The Move/Sui entries here audit source. Chase audits execution. It pulls a transaction's real trace over gRPC from a Sui fullnode, resolves every MoveCall in the PTB, and runs invariant checks on what actually happened. Reverted transactions are analysed in full, because an attempt usually fails somewhere and the attempted call is still the interesting part. This is the phase a source audit cannot observe: after deployment, on a real chain, where the contract may not even be public.
+
+**Three layers, each callable on its own and all of them exposed over MCP (seven tools)**, so an orchestrator routes into whichever one it needs:
+
+- **11 deterministic invariant checks over 12 violation types**: mutable `&mut` returns, capability transfers to a non-participant, oracle update followed by action, unexpected object transfer, A→B→A composition, borrow/repay shape, repeated module calls, address outflow, net coin imbalance summed across the address set, dynamic field create and delete, and an object changing hands with no event naming it.
+- **Deterministic triage**: score 0-100, tier P0-P3/NOISE, recommended action (DISMISS / MANUAL_REVIEW / ESCALATE), benign-pattern suppression, per-type confidence modifiers, and a written rationale, so a tier traces back to the weights instead of being taken on faith.
+- **A budget-bounded scout**: it takes a mandate, lists transactions, matches a target or an explicit digest list, analyzes, triages, hands P0-P2 to an investigator and decides when to stop, under hard limits on RPC calls, LLM calls, tokens and wall time.
+
+P0-P2 findings escalate to an investigator that *reads* the transaction rather than re-scoring it: one trace fetch, then the commands in order, the packages, the value movement, and the exact names each high-severity signal fired on. The verdict is asked of the decision layer you name, and every reading prints which layer answered. That matters because the two disagree. On one organic mainnet P1 the deterministic layer answered `needs-review`, because all three of its high-severity signals were function-name matches, while a model reading the identical evidence answered `suspicious`. Neither is a vulnerability claim, and the evidence line is what a human checks either way.
+
+Agency is bounded and labelled rather than decorative. A fallback decision prints `[DEGRADED: not a model decision]`. A scan that reached no transactions says `EMPTY AGAINST THE TARGET, not a clean scan`. A run that sampled 500 of several thousand prints `INCOMPLETE`. Digests it could not read come back under `skipped` with a reason, never as an absent finding. The default backend is a deterministic rules table, so a hunt repeats exactly with no key and no spend.
+
+**Limits, stated rather than discovered.** Three detectors are keyword-based and will happily trip legitimate protocols. `ADDRESS_OUTFLOW` is a heuristic, because gRPC balance changes are address-scoped and shared-object flows do not appear there. Public fullnodes prune about three weeks of history unless you point `SUI_RPC_URL` / `SUI_ARCHIVE_URL` at a provider or your own archive. Routed volume is matched against the call, event and object-type positions in a trace, so a protocol reachable only inside another package's internal calls is invisible. And an investigation sees commands, not code: no function signatures, no arguments, so *who can call this and what does it write* stays a Move-source question. Findings are triage signals, not verdicts.
+
+**Evidence.** CI on every push: typecheck plus four suites that run offline against committed traces, needing no `.env` on a fresh clone (12 invariant fixtures, 13 triage cases, 318 regression checks, budget units). Every violation type has a fixture asserting it fires, seven from synthetic Move packages published to testnet and five from organic mainnet transactions, and the docs spell out why those support different claims. A 24-check MCP selftest runs over stdio with no network, 33 with the live mainnet cases. Detection quality is measured instead of argued: `npm run corpus` runs the real pipeline over the local trace cache, offline and repeatably, and it is how the last several detector changes got priced, including two escalations that were caught and suppressed before release. Current measured figures over 6,643 cached mainnet transactions: 896 flagged (13.5%), 16 high-severity findings, 4 transactions at P1, 0 at P0. Field-tested: 3,616 organic transactions swept across the whole retention window.
+
+It also ships as an agent skill under `skill/chase/`: frontmatter and trigger phrases for when an agent should reach for runtime evidence instead of a source audit, the tool table, how to read a coverage line without over-claiming it, and two real hunt reports under `references/`, one that found signals and one that found nothing. The empty one is in there deliberately, because an agent that has only ever seen a successful scan will report an unscanned range as a clean one.
+
+Diff is three lines: the Move/Sui row (sorted by owner, digit-prefixed first, matching the Solidity section), `Move/Sui (4) → (5)`, and the tools badge `89 → 90`.
+
+## Checked before submitting, and what to re-measure before quoting this again
 
 - [x] Public repo, OSI licence (MIT)
 - [x] Works without an API key, `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
-- [x] Live on npm as `@zeroxcyril/chase`. Measured 2026-09-30: the registry serves 0.1.0 through 0.2.2 with
-      `latest` at 0.2.2, and each of those was verified by installing from the registry into a clean prefix
-      and running the bins, so a reviewer can try it in one command instead of cloning. 0.3.0 is committed
-      here and waiting on the publish grant; nothing in the description above depends on it being the number
-      a reviewer sees, but the version line under this checkbox does, so re-run `npm view` before opening
-      the PR and update this sentence rather than letting it inherit
+- [x] Live on npm as `@zeroxcyril/chase`. Measured 2026-09-30 at 10:42: the registry serves 0.1.0 through
+      0.3.0 with `latest` at 0.3.0, and 0.3.0 was verified as shipped, not just as built: installed into a
+      clean prefix, four bins executable, `--version` printing 0.3.0, a live mainnet digest analyzing with
+      exit 0, and the published MCP server answering `tools/list` with all seven tools. This is the sentence
+      that goes stale first, so re-run `npm view @zeroxcyril/chase version` before quoting any of this again
 - [x] Description matches neighbours' length, no marketing superlatives
-- [x] The no-install form uses `npx -y -p @zeroxcyril/chase chase …`, because four bins ship in one package
-      and the bare form is a question npx cannot answer
-- [ ] Confirm the row lands under `Free & Open Source -> Move/Sui`, alphabetised, with `0xCyrildev` sorting first
+- [x] The one-command form is the bare `npx -y @zeroxcyril/chase analyze <digest>`, verified against the
+      published 0.3.0. Through 0.2.0 that form failed with `Permission denied`, because the bins packed
+      without an execute bit and a global install had been hiding it by chmodding its own symlink. The
+      `-p @zeroxcyril/chase chase …` form still works and is what to use if a reviewer is on an old version
+- [x] Confirmed from the diff itself: the row is the first entry under `Free & Open Source -> Move/Sui`, and `0x…`
+      sorting first is what their Solidity section already does (`0xsimao/0xsimao-ai` leads it)
 - [ ] One link row only, and resist the temptation to also add it under Multi-Language, since it is Sui specific
 - [ ] The star count of the target repo is not a reason to pad the description, their rule is concise, and
       the version above is longer than that rule wants. Trim the Evidence paragraph to a single sentence if a
       maintainer pushes back rather than defending it
-- [ ] PR #43 is open against the old text (0.1.1, eight invariants, 53 checks). Either refresh its body with
-      the block above or leave it, but do not let the submitted version and this file disagree
+- [x] PR #43's stale body (0.1.1, eight invariants, 53 checks) was refreshed on 2026-09-30 with the text above,
+      and a comment was posted saying the description changed and the three-line diff did not, because silently
+      editing a body three people had already approved is how a review gets tricked
 
 ## Why not the skills repo
 
