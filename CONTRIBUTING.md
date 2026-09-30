@@ -6,12 +6,13 @@ transaction, and a rate quoted in a README has to have a denominator next to it.
 exists because that standard has been violated here in ways that produced wrong results, not hypothetical
 ones, and the fixes are all in the git log.
 
-## The five commands to know
+## The commands to know
 
 ```bash
 npm install          # also builds: `prepare` runs the build, and the bins execute dist/
 npm run typecheck    # tsc --noEmit over src/ only, see the trap below
 npm test             # four suites, all offline against committed traces
+npm run mcp:selftest # the MCP contract, offline, over stdio: see the section below
 npm run smoke:live   # three uncached mainnet transactions: the only check that sees transport drift
 npm run corpus -- <label>   # price a detector or scoring change over the local trace cache
 ```
@@ -51,6 +52,31 @@ message. Do not add to that allowlist to get green. It is empty right now becaus
 control, and the two kinds of control are different claims: seven types come from the synthetic Move package
 published to testnet, five from organic mainnet transactions, and an organic case proves the detector fires
 on real data of that shape, not that it catches an exploit.
+
+## Changing the MCP surface
+
+`src/mcp-server.ts` is a contract with software that is not yours, so it has its own test:
+
+```bash
+npm run mcp:selftest          # offline, against committed fixtures, no endpoint needed
+CHASE_MCP_LIVE=1 npm run mcp:selftest   # adds the live listing, watch and hunt cases
+```
+
+Three rules the test enforces, all of them learned the hard way:
+
+- **A tool must accept what its documentation says it accepts.** `skill/chase/SKILL.md` once listed
+  `useCache`, `explain`, `txs` and `reserveForJudge` as inputs that did not exist, and the investigator
+  itself was not callable over MCP at all. When the doc and the tool disagree, decide which one is the
+  spec before editing either, and prefer fixing the tool if the documented behaviour is the useful one.
+- **Anything a caller could mistake for a clean result has to be named.** Return `skipped` or `notRead`
+  with a per-item reason. An absent finding and a transaction with nothing to report are the same JSON
+  shape to a program, which is the same failure as `complete` on a scan that ran no passes.
+- **Structured output keeps its provenance.** A reading prints which layer formed it, so `source`,
+  `model` and `degraded` stay on the response rather than being flattened into prose on the way out.
+
+Adding a tool also means updating the tool lists in `README.md`, `skill/chase/SKILL.md` and
+`skill/chase/README.md`, and the count the selftest asserts. Three places, and CI will not notice if you
+miss one, which is exactly why the count is asserted rather than admired.
 
 ## Tests
 
@@ -94,6 +120,26 @@ changes, or the assertion turns quietly true.
 - **`npm pack --dry-run` does not show file modes.** The bins shipped without an execute bit through four
   releases because a global install chmods its own symlink and hides the problem, while `npx` execs the file
   from the cache. Check a real tarball with `tar -tzvf`.
+
+## Changing the watcher
+
+Four rules in `src/commands/watch.ts` and `src/lib/cursor.ts` are load-bearing, and each one exists
+because the opposite behaviour was observed:
+
+- The stored position is the **next checkpoint to attempt**, written only after every transaction in a
+  checkpoint was tried. Never write it mid-loop, and never for a checkpoint that threw.
+- An unreadable checkpoint advances the position *and* appends to `gaps`. A gap that is not recorded is
+  coverage the run never had, and the next run has to be able to say how many there are.
+- A range that reaches the endpoint's tip re-checks it once and then stops. Walking past it would print
+  `0 txs` for checkpoints that do not exist yet, advance over them, and leave a monitor reporting a
+  sweep the chain never had. Exiting 2 there is correct: the range was asked for and not delivered.
+- A resume below the retention floor exits instead of clamping forward, and `--from` never rewinds the
+  stored cursor. Both of those turn one command into another command, and printing a number is not
+  consent to a three-week backfill.
+
+The cursor is written as a temp file plus a rename, because a torn cursor reads as no cursor and resumes
+from tip-2 in silence. Its tests pin `CHASE_WATCH_CURSOR_FILE` to a temp path; the state store a suite
+mutates is not a fixture, and the live position belongs to whoever is running a monitor.
 
 ## Publishing
 
