@@ -9,19 +9,21 @@
     },
     {
       "digest": "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
-      "label": "aggregator swap (mainnet, address outflow + composition)",
+      "label": "aggregator swap (mainnet, address outflow + composition + value leaving the address-visible set)",
       "network": "mainnet",
       "expectViolationTypes": [
         "ADDRESS_OUTFLOW",
+        "COIN_NET_IMBALANCE",
         "REENTRANCY_PATTERN"
       ],
-      "note": "router calls coin_utils::transfer_nonzero multiple times across hops",
+      "note": "router calls coin_utils::transfer_nonzero multiple times across hops; measured tiers. The CERT imbalance (-1,934,833,427, no receiving address) is corroborated by the same swap shape rather than counted twice",
       "expectTiers": [
-        "P3",
         "NOISE",
         "NOISE",
         "NOISE",
-        "NOISE"
+        "NOISE",
+        "NOISE",
+        "P3"
       ]
     },
     {

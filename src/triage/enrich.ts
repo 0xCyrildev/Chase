@@ -74,6 +74,16 @@ function distinctDetectors(
 export const EXPECTED_OVERLAP: [string, string][] = [
   ["CAPABILITY_TRANSFER", "UNEXPECTED_TRANSFER"],
   ["ADDRESS_OUTFLOW", "REENTRANCY_PATTERN"],
+  // The same balanceChanges array read two ways: per address, and summed. Not two opinions.
+  ["COIN_NET_IMBALANCE", "ADDRESS_OUTFLOW"],
+  // Measured, not assumed: shipping COIN_NET_IMBALANCE with only the pair above moved 4
+  // transactions from P3 to P2 on the 6,502-trace corpus, because it corroborated the very
+  // shape that produces it — a swap routes through pool modules repeatedly (REPEATED_MODULE_CALLS,
+  // REENTRANCY_PATTERN, FLASH_LOAN_SHAPED) while value crosses into a pool's internal balance.
+  // One swap shape, five ways of noticing it.
+  ["COIN_NET_IMBALANCE", "REENTRANCY_PATTERN"],
+  ["COIN_NET_IMBALANCE", "REPEATED_MODULE_CALLS"],
+  ["COIN_NET_IMBALANCE", "FLASH_LOAN_SHAPED"],
   ["FLASH_LOAN_SHAPED", "REPEATED_MODULE_CALLS"],
   ["FLASH_LOAN_SHAPED", "REENTRANCY_PATTERN"],
   ["REENTRANCY_PATTERN", "REPEATED_MODULE_CALLS"],

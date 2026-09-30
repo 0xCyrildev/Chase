@@ -239,14 +239,16 @@ matcher was fixed.
 
 ## Invariants
 
-Chase ships with eight invariant checks. Each is intentionally conservative:
+Chase ships with nine invariant checks. Each is intentionally conservative:
 they fire on patterns worth a human looking at, not on confirmed exploits.
 
-Seven of the eight have **positive controls**: synthetic Move packages
-published to testnet that trigger each detector on demand. The remaining one
-(`address-balance-delta`) is a heuristic that fires on patterns without a
-clean synthetic trigger, because the false-positive class is inherent to how
-gRPC surfaces balance changes.
+Eight of the nine have **positive controls**: synthetic Move packages
+published to testnet that trigger each detector on demand. The two balance
+checks (`address-balance-delta`, `coin-net-imbalance`) have no clean synthetic
+trigger because the false-positive class is inherent to how gRPC surfaces
+balance changes — they are asserted against an organic mainnet transaction
+instead, which is a characterisation fixture, not proof that the detector
+catches an exploit.
 
 ### address-balance-delta
 
@@ -259,8 +261,38 @@ array, so the sender's debit looks unmatched.
 
 A real positive would show a coin type where the total address-based net
 across all participants is nonzero and no shared object received the missing
-amount. Distinguishing these requires reconstructing object-owned balances,
-which is on the roadmap.
+amount. That second half — object-owned balances — is not in the trace, so
+this check cannot distinguish the two on its own. It fires on 122 of 6,502
+sampled mainnet transactions (1.9%), and the summed view of the same data is
+the companion check below.
+
+### coin-net-imbalance
+
+Sums every `balanceChanges` row for a coin type across all addresses in the
+transaction and reports a non-zero total: value entered or left the set of
+addresses the trace can see.
+
+**Severity:** low
+
+**Measured:** fires on 189 of 6,502 mainnet transactions (2.9%), across 38
+coin types. Excluding `0x2::sui::SUI` is load-bearing, not taste — with gas
+counted the same rule fires on 71.6% of traffic, and 4,466 of those fires are
+gas alone. It joins the swap-shape cluster in the corroboration table — paired against
+`address-balance-delta` (same array, summed vs per address),
+`reentrancy-pattern`, `repeated-module-calls` and `flash-loan-shaped`. That
+was not a guess: shipping it with only the `address-balance-delta` pair moved
+4 transactions from P3 to P2 on this corpus, because the imbalance is produced
+by the very routing that trips those three. One swap shape, five ways of
+noticing it.
+
+**What this is not:** a supply-change check. The top functions attached to the
+net-negative totals are `lending_market::claim_rewards_and_deposit`,
+`gateway::provide_liquidity_with_fixed_amount` and `pool::open_position` —
+deposits into shared objects whose internal balances this trace does not
+carry. The finding therefore names the candidate mechanism (the transaction's
+non-framework calls, in order) rather than claiming a leak, and the committed
+fixture is a Kriya swap where 1,934,833,427 `CERT` left the address-visible
+set with no receiving address.
 
 ### mutable-access
 
