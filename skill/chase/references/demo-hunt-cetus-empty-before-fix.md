@@ -1,3 +1,7 @@
+> Captured 2026-09-29 with 0.1.1, verbatim, as the before-state of the target-matching
+> fix: a busy protocol reported as never called. Coverage wording is current-era for
+> that build; see `demo-hunt-organic-investigator.md` for output from 0.1.4 onward.
+
 # Chase Hunt Report
 
 **Target:** `0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb`

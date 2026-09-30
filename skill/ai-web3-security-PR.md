@@ -42,21 +42,37 @@ not: another static auditor.
 > transactions says `INCOMPLETE`, and a target it never matched says `EMPTY AGAINST THE TARGET, not a
 > clean scan`.
 >
+> P0–P2 findings escalate to an investigator that reads the transaction rather than re-scoring it: one
+> trace fetch, then the commands in order, the packages, the value movement, and the exact names each
+> high-severity signal matched. The verdict is asked of the decision layer over that evidence — rules
+> table by default, no key, reproducible; a model on request — and every reading prints which layer
+> wrote it. That matters because the two disagree: on one organic mainnet P1 the deterministic layer
+> answered `needs-review`, because all three of its high-severity signals were function-name matches,
+> while a model reading the same evidence answered `suspicious`. Neither is a vulnerability claim, and
+> the evidence line is what a human checks either way.
+>
 > Honest limits: three detectors are keyword-based and will trip legitimate protocols; `ADDRESS_OUTFLOW`
 > is a heuristic because gRPC balance changes are address-scoped; public fullnodes prune ~21 days of
-> history; and routed volume is matched against the trace's call/event/object-type positions, so a
-> protocol reachable only through another package's internal calls is invisible.
+> history unless you point `SUI_RPC_URL`/`SUI_ARCHIVE_URL` at a provider or your own archive; and routed
+> volume is matched against the trace's call/event/object-type positions, so a protocol reachable only
+> through another package's internal calls is invisible.
 >
-> Evidence: public MIT repo, CI on every push (typecheck + two fixture suites), 9 invariant fixtures and
-> 10 triage checks that run offline against committed traces, positive controls for all eight detectors
-> from synthetic packages published to testnet, and an 18-check live MCP selftest against mainnet.
+> Evidence: public MIT repo; CI on every push (typecheck + four suites — 9 invariant fixtures, 10 triage
+> fixtures, 86 agent/CLI/detector checks, budget units — all offline against committed traces, and a
+> fresh clone needs no `.env`); positive controls for all eight detectors from synthetic packages
+> published to testnet; a 9-check MCP selftest over stdio; `npm run smoke:live` against uncached mainnet
+> transactions; and detection quality measured rather than asserted — 3,616 organic mainnet
+> transactions swept across the retention window at 9.2 tx/s, and a 6,502-transaction offline corpus run
+> that is how the last detector fix got priced (90 → 154 flash-loan findings, 10.0% → 10.9% flagged,
+> high-severity and P1 counts unchanged).
 
 ## Before opening it
 
 - [x] Public repo, OSI licence (MIT)
 - [x] Works without an API key — `npm install -g @zeroxcyril/chase && chase analyze <TX_DIGEST>`
-- [x] Live on npm (`@zeroxcyril/chase`, 0.1.0 + 0.1.1), so a reviewer can install it in one command rather
-      than cloning
+- [x] Live on npm (`@zeroxcyril/chase`, 0.1.0–0.1.3 published and each verified by installing from the
+      registry into a clean prefix), so a reviewer can install it in one command rather than cloning.
+      0.1.4 is committed and needs the publish grant
 - [x] Description matches neighbours' length; no marketing superlatives
 - [ ] Confirm the row lands under `Free & Open Source → Move/Sui`, alphabetised — `0xCyrildev` sorts first
 - [ ] One link row only; resist the temptation to also add it under Multi-Language (it is Sui-specific)

@@ -1,3 +1,7 @@
+> Captured 2026-09-29 with 0.1.2, verbatim. The investigator output in it is
+> superseded — escalated findings now carry an evidence line and name the layer that
+> judged them; see `demo-hunt-organic-investigator.md` for current output.
+
 # Chase Hunt Report
 
 **Target:** `0x1eabed72c53feb3805120a081dc15963c204dc8d091542592abaf7a35689b2fb`

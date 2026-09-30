@@ -740,8 +740,10 @@ Fixtures live in `test-cases/known-txs.json`. Run the suite:
 ```bash
 ./scripts/run-tests.sh
 ./scripts/run-triage-tests.sh
-npm run test:agent        # target matching, budget reserve, investigator,
-                          # batch shape, CLI validation, dry-run coverage
+npm run test:agent        # target matching, budget reserve, investigator (reading,
+                          # evidence and provenance), detector keyword shapes, batch
+                          # shape, CLI validation, dry-run coverage, manifest/lock
+                          # agreement, endpoint configuration
 npx tsx scripts/test-budget.ts   # Budget unit checks (rpc/llm/token/time)
 ```
 
@@ -749,8 +751,9 @@ npx tsx scripts/test-budget.ts   # Budget unit checks (rpc/llm/token/time)
 npm test                  # all four suites
 ```
 
-Both suites read committed fixtures, so they are offline and deterministic —
-which also means they cannot tell you whether the transport still answers.
+All four read committed fixtures or need no network at all, so a fresh clone with
+no `.env` passes offline — which also means none of them can tell you whether the
+transport still answers.
 For that:
 
 ```bash

@@ -67,6 +67,14 @@ is included at `references/demo-hunt-cetus.md` — along with
 `references/demo-hunt-cetus-empty-before-fix.md`, the same target returning nothing before the target
 matcher was fixed. Both are real runs.
 
+For organic traffic and the investigator, see
+`references/demo-hunt-organic-investigator.md`: three transactions escalated out of 3,616 mainnet ones
+swept across the whole retention window, and the same evidence read twice — the deterministic layer
+answering `needs-review` because every high-severity signal was a function-name match, a model answering
+`suspicious` on the identical line of facts. Both readings print the layer that produced them, and that
+disagreement is why: neither is a vulnerability claim, and the file says what would have to be read to
+settle it.
+
 ## Install and run
 
 ```bash
