@@ -6,7 +6,12 @@
 // Triage scores one finding per violation, so the per-transaction view taken here is the worst tier
 // any of its violations reached — that is what a reader of `chase triage` actually sees.
 //
-//   node scripts/corpus-report.mjs [label]
+// Run it through tsx (`npm run corpus`) so it imports the source tree. Importing dist/ instead
+// measures whatever was last compiled: adding a ninth invariant left this printing a byte-identical
+// report, because dist/ genuinely did not contain it. A stale baseline is worse than none, because
+// it looks like a null result.
+//
+//   npm run corpus -- [label]        (or: npx tsx scripts/corpus-report.mjs [label])
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -18,7 +23,7 @@ process.env.CHASE_HISTORY_FILE = "";
 
 const TIER_ORDER = ["P0", "P1", "P2", "P3", "NOISE"];
 
-const { triage } = await import("../dist/triage/index.js");
+const { triage } = await import("../src/triage/index.js");
 
 const digests = fs.readdirSync(CACHE).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5));
 

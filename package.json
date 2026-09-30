@@ -58,6 +58,7 @@
     "test:agent": "npx tsx scripts/agent-tests.ts",
     "typecheck": "tsc --noEmit",
     "mcp:selftest": "tsx scripts/mcp-selftest.ts",
+    "corpus": "tsx scripts/corpus-report.mjs",
     "smoke:live": "node scripts/live-smoke.mjs",
     "mcp:selftest:live": "CHASE_MCP_LIVE=1 tsx scripts/mcp-selftest.ts"
   },
