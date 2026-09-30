@@ -8,7 +8,7 @@ import {
 } from "./types.js";
 import { loadTrace, saveTrace } from "./cache.js";
 import { assertDigest } from "./digest.js";
-import { ownerAddress } from "./owner.js";
+import { ownerAddress, ownerKindOf, ownerObjectId } from "./owner.js";
 import { getSignature, setSignature } from "./sigcache.js";
 
 // sui.rpc.v2 QUERY_END_REASON_CHECKPOINT_BOUND — the requested range was walked to its bound.
@@ -313,12 +313,19 @@ export class TraceFetcher {
       else if (inputExists && !outputExists) changeType = "deleted";
       else changeType = "mutated";
 
+      // Recorded, not derived: anything a detector needs has to survive the cache, and the
+      // owner of a deleted object is legitimately absent — which is "not classifiable", never
+      // "nobody looked".
+      const ownerKind = ownerKindOf(o.outputOwner) ?? "unresolved";
+
       return {
         objectId: o.objectId ?? "unknown",
         objectType: objectTypes[o.objectId] ?? "unknown",
         changeType,
         sender: ownerAddress(o.inputOwner),
         recipient: ownerAddress(o.outputOwner),
+        outputOwnerKind: ownerKind,
+        outputOwnerId: ownerObjectId(o.outputOwner),
       };
     });
 
@@ -340,7 +347,6 @@ export class TraceFetcher {
       objectChanges,
       ptbCommands,
       events,
-      raw: tx,
     };
   }
 

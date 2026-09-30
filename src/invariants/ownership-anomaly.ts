@@ -1,5 +1,5 @@
 import { InvariantChecker, SuiTransactionTrace, Violation } from "../lib/types.js";
-import { outputOwnerKind } from "../lib/owner.js";
+import { outputOwnerOf, UNRECORDED_NOTE } from "../lib/owner.js";
 
 export const ownershipAnomaly: InvariantChecker = {
   name: "ownership-anomaly",
@@ -19,7 +19,7 @@ export const ownershipAnomaly: InvariantChecker = {
       if (change.changeType === "deleted") continue;
       if (change.changeType !== "mutated") continue;
 
-      const ownerKind = outputOwnerKind(trace, change);
+      const owner = outputOwnerOf(change);
       const senderHeldItBefore = !!change.sender && change.sender === trace.sender;
 
       if (change.recipient) {
@@ -36,7 +36,7 @@ export const ownershipAnomaly: InvariantChecker = {
             objectType: change.objectType,
             changeType: change.changeType,
             recipient: change.recipient,
-            recipientKind: ownerKind,
+            recipientKind: owner.kind,
             previousOwner: change.sender ?? null,
           },
         });
@@ -47,22 +47,28 @@ export const ownershipAnomaly: InvariantChecker = {
       // held it as an address at input — otherwise nothing about the owner is known.
       if (!senderHeldItBefore) continue;
 
+      const ownerNames = owner.objectId
+        ? `${owner.kind} ${owner.objectId.slice(0, 12)}…`
+        : owner.kind;
+
       violations.push({
         type: "UNEXPECTED_TRANSFER",
         severity: "medium",
         message:
           `Object ${change.objectId.slice(0, 12)}… (${shortType(change.objectType)}) left the sender's ` +
-          `address ownership to a non-address owner (${ownerKind})`,
+          `address ownership into a non-address owner (${ownerNames})`,
         evidence: {
           objectId: change.objectId,
           objectType: change.objectType,
           changeType: change.changeType,
           recipient: null,
-          recipientKind: ownerKind,
+          recipientKind: owner.kind,
+          ...(owner.objectId ? { recipientObject: owner.objectId } : {}),
           previousOwner: change.sender,
           note:
-            "recipient is empty because the new owner is not an AddressOwner; the normalized trace " +
-            "does not name the owning object",
+            owner.kind === "unrecorded"
+              ? UNRECORDED_NOTE
+              : "recipient is empty because the new owner is not an address owner",
         },
       });
     }

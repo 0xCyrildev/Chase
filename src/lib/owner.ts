@@ -1,4 +1,4 @@
-import { ObjectChange, SuiTransactionTrace } from "./types.js";
+import { ObjectChange, OwnerKind } from "./types.js";
 
 /**
  * The owner shapes the gRPC SDK can produce. `mapOwner` in @mysten/sui returns exactly these and
@@ -15,26 +15,18 @@ export const SDK_OWNER_KINDS = [
   "ConsensusAddressOwner",
 ] as const;
 
-export type OwnerKind =
-  | "address"
-  | "consensus-address"
-  | "object"
-  | "immutable"
-  | "shared"
-  | "unresolved";
-
-export function ownerKindOf(owner: any): OwnerKind | undefined {
+export function ownerKindOf(owner: any): Exclude<OwnerKind, "unrecorded"> | undefined {
   switch (owner?.$kind) {
     case "AddressOwner":
       return "address";
+    case "ConsensusAddressOwner":
+      return "consensus-address";
     case "ObjectOwner":
       return "object";
     case "Immutable":
       return "immutable";
     case "Shared":
       return "shared";
-    case "ConsensusAddressOwner":
-      return "consensus-address";
     default:
       return undefined;
   }
@@ -65,24 +57,32 @@ export function ownerAddress(owner: any): string | undefined {
   return undefined;
 }
 
+/** The object behind an owner, when another object owns it. */
+export function ownerObjectId(owner: any): string | undefined {
+  if (owner?.$kind === "ObjectOwner" && typeof owner.ObjectOwner === "string") {
+    return owner.ObjectOwner;
+  }
+  return undefined;
+}
+
 /**
- * Output owner of one object change, as far as this trace can say. The owner shape is read first
- * so a consensus-address owner stays distinguishable from a plain one; `recipient` is the fallback
- * proof that *an* address owns it, not a classification.
+ * Who owns this object now, according to the record the fetch left on the change.
+ *
+ * Nothing here reads a raw response: a rule that can only be answered on a first, uncached fetch
+ * is a rule that silently stops applying the moment a digest is in the cache, which is most
+ * digests most of the time. `unrecorded` is what an older cached trace can honestly say.
  */
-export function outputOwnerKind(
-  trace: SuiTransactionTrace,
-  change: ObjectChange
-): OwnerKind {
-  const raw: any = trace.raw;
-  const changed: any[] | undefined = raw?.effects?.changedObjects;
-  if (Array.isArray(changed)) {
-    const hit = changed.find((o) => o?.objectId === change.objectId);
-    const kind = ownerKindOf(hit?.outputOwner);
-    if (kind) return kind;
+export function outputOwnerOf(change: ObjectChange): { kind: OwnerKind; objectId?: string } {
+  if (change.outputOwnerKind) {
+    return { kind: change.outputOwnerKind, objectId: change.outputOwnerId };
   }
 
-  // No owner shape to read: an address in `recipient` still proves *an* address owns it.
-  if (change.recipient) return "address";
-  return "unresolved";
+  // Traces normalised before owners were recorded. An address in `recipient` still proves that an
+  // address owns it; anything beyond that was never looked at.
+  if (change.recipient) return { kind: "address" };
+  return { kind: "unrecorded" };
 }
+
+/** A finding must say so when the owner was never recorded, rather than leaving it implicit. */
+export const UNRECORDED_NOTE =
+  "owner kind was not recorded for this cached trace — re-analyze with --no-cache to resolve it";

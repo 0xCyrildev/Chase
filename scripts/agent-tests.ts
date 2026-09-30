@@ -386,6 +386,74 @@ check(
 // as a transfer to an address, which is a different claim than the one the field makes.
 check("an object owner never becomes a recipient", ownerAddress({ $kind: "ObjectOwner", ObjectOwner: "0xdead" }) === undefined);
 
+console.log("\nowner recording (a cached trace must answer what a live one answered)");
+
+const { outputOwnerOf } = await import("../src/lib/owner.js");
+const { saveTrace, loadTrace } = await import("../src/lib/cache.js");
+const { ownershipAnomaly } = await import("../src/invariants/ownership-anomaly.js");
+
+const wrapped = {
+  objectId: "0xaaa",
+  objectType: "0x5::pool::Pool",
+  changeType: "mutated",
+  outputOwnerKind: "object",
+  outputOwnerId: "0x80f9cb39d2f80d3d4b6f78a4c1e2d3f0a1b2c3d4e5f60718293a4b5c6d7e8f90",
+};
+check("a recorded owner kind is read back verbatim", outputOwnerOf(wrapped as any).kind === "object");
+check("an object owner names the object that owns it", typeof outputOwnerOf(wrapped as any).objectId === "string");
+
+// Traces normalised before owners were recorded: no kind, no recipient. Saying `unresolved` here
+// would claim a lookup that never happened.
+check(
+  "an owner that was never recorded is unrecorded, not unresolved",
+  outputOwnerOf({ objectId: "0xaaa", objectType: "0x5::pool::Pool", changeType: "mutated" } as any).kind ===
+    "unrecorded"
+);
+
+const naming = ownershipAnomaly.check(
+  trace({ sender: "0xs", objectChanges: [{ ...wrapped, sender: "0xs" }] })
+);
+check(
+  "a change into an object owner names the parent object in the finding",
+  naming.length === 1 && String(naming[0].message).includes("0x80f9cb39"),
+  naming[0]?.message ?? "no violation"
+);
+
+const legacy = ownershipAnomaly.check(
+  trace({
+    sender: "0xs",
+    objectChanges: [{ objectId: "0xaaa", objectType: "0x5::pool::Pool", changeType: "mutated", sender: "0xs" }],
+  })
+);
+check(
+  "an unrecorded owner is stated as unrecorded, and says how to resolve it",
+  legacy.length === 1 &&
+    legacy[0].evidence?.recipientKind === "unrecorded" &&
+    /not recorded for this cached trace/.test(String(legacy[0].evidence?.note)),
+  JSON.stringify(legacy[0]?.evidence ?? null)
+);
+
+// The round trip is the point of the change: an owner read on a first fetch has to still be there
+// on the second one. CHASE_CACHE_DIR is re-read per call for exactly this test — the process
+// already pointed it at the committed fixtures, and writing there would edit the corpus.
+const RT_DIGEST = "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7";
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "chase-cache-"));
+const previousCacheDir = process.env.CHASE_CACHE_DIR;
+process.env.CHASE_CACHE_DIR = scratch;
+try {
+  saveTrace(trace({ digest: RT_DIGEST, network: "mainnet", sender: "0xs", objectChanges: [wrapped] }));
+  const back = loadTrace(RT_DIGEST, "mainnet");
+  check("the recorded owner survives save → load", back?.objectChanges?.[0]?.outputOwnerKind === "object");
+  check("and so does the parent id", typeof back?.objectChanges?.[0]?.outputOwnerId === "string");
+  const onDisk = JSON.parse(fs.readFileSync(path.join(scratch, "mainnet", `${RT_DIGEST}.json`), "utf8"));
+  check("a cached trace stamps the schema it was normalised under", onDisk.schema === 2, String(onDisk.schema));
+  check("raw is gone from what gets written", !("raw" in onDisk));
+} finally {
+  if (previousCacheDir === undefined) delete process.env.CHASE_CACHE_DIR;
+  else process.env.CHASE_CACHE_DIR = previousCacheDir;
+  fs.rmSync(scratch, { recursive: true, force: true });
+}
+
 console.log("\ndry-run coverage (the published artifact surfaced this one)");
 
 const { scout } = await import("../src/agent/scout.js");

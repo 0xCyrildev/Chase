@@ -294,6 +294,14 @@ transaction.
 mutations are ignored, which is correct since most modern DeFi keeps value
 in shared pools, but it means the invariant is quiet on typical traffic.
 
+The output owner's kind is recorded when the trace is fetched, so a second,
+cached analysis answers the same question the first one did — and when an
+object owns the object, the finding names the owning object instead of
+apologising. Traces cached before that capture existed report
+`recipientKind: "unrecorded"` and say to re-analyze with `--no-cache`, which
+is a different claim from `unresolved` (the owner was read and could not be
+classified — normally a deleted object, which has no output owner).
+
 ### oracle-pattern
 
 Flags transactions that call an oracle-update function followed by a DeFi
@@ -389,6 +397,19 @@ transaction sender.
 **Limitation:** name-based on the object type string. A `TreasuryCap`
 transfer also trips `ownership-anomaly`, which is expected - a cap moving to
 a new owner is both an ownership change and a capability handoff.
+
+Every finding carries a `classification` block saying how much of *that*
+transaction was visible: unresolvable object types, capability moves with no
+resolvable owner, and `unrecordedOwnerKinds` for traces cached before owners
+were captured.
+
+Capability names are a fixed list, so a protocol that calls its cap `OrderCap`
+is not matched. A `*Cap` suffix rule was measured against the 6,502-transaction
+corpus before deciding: 416 object changes across 414 transactions carry a
+cap-shaped type the list misses, and none of them was transferred to a
+different address or left the sender's ownership — the widening would have
+added no finding on that corpus, so it is coverage that cannot be priced, and
+it is not taken.
 
 ## Triage
 
@@ -716,7 +737,8 @@ keyed by `package::module::function`.
 
 Chase caches two things on disk:
 
-- Normalized traces at `~/.cache/chase/<network>/<digest>.json`
+- Normalized traces at `~/.cache/chase/<network>/<digest>.json`, stamped with
+  the schema they were written under
 - Move function signatures at `~/.cache/chase/signatures.json`
 
 Repeat analyses of the same digest are near-instant and avoid hitting the
@@ -868,6 +890,11 @@ sui client publish --gas-budget 100000000
 
 - **`ownership-anomaly` produces no signal on shared-object flows.** The
   recipient must be an address owner for the check to fire.
+
+- **Traces cached before schema 2 have no recorded owner.** Both ownership
+  rules then report `unrecorded` rather than a kind, because a lookup that
+  never happened is not the same statement as one that failed. `--no-cache`
+  on the digest resolves it; the cache is not rewritten in place.
 
 - **No testnet archival.** The archival fallback is mainnet-only. Testnet
   wipes periodically.

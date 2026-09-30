@@ -27,6 +27,23 @@ export interface AnalysisReport {
   };
 }
 
+/**
+ * Who owns an object after a transaction, as far as the trace can say.
+ *
+ * `unresolved` and `unrecorded` are not the same statement and must never collapse. Unresolved
+ * means the owner was looked at and could not be classified — in practice a change with no output
+ * owner at all, which is what a deleted object looks like. Unrecorded means this trace was
+ * normalised before owners were captured, so nobody looked.
+ */
+export type OwnerKind =
+  | "address"
+  | "consensus-address"
+  | "object"
+  | "immutable"
+  | "shared"
+  | "unresolved"
+  | "unrecorded";
+
 export interface InvariantChecker {
   name: string;
   description: string;
@@ -42,7 +59,6 @@ export interface SuiTransactionTrace {
   objectChanges: ObjectChange[];
   ptbCommands: PTBCommand[];
   events: SuiEvent[];
-  raw: unknown;
 }
 
 export interface BalanceChange {
@@ -57,6 +73,14 @@ export interface ObjectChange {
   changeType: string;
   recipient?: string;
   sender?: string;
+  /**
+   * Output owner, recorded at fetch time rather than derived at analysis time. Cached traces are
+   * the normal case, not the exception, so anything a rule needs had better survive the cache —
+   * two ownership rules used to reach for a `raw` response that `saveTrace` never writes.
+   */
+  outputOwnerKind?: OwnerKind;
+  /** The owning object, when an object owns it: a dynamic field's parent, a wrapped cap. */
+  outputOwnerId?: string;
 }
 
 export interface PTBCommand {

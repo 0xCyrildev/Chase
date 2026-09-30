@@ -6,7 +6,14 @@ import { assertDigest } from "./digest.js";
 
 export type CacheNetwork = "mainnet" | "testnet" | "devnet";
 
-const CACHE_DIR = process.env.CHASE_CACHE_DIR ?? path.join(os.homedir(), ".cache", "chase");
+/**
+ * Resolved per call, not once at import: the suites point CHASE_CACHE_DIR at the committed
+ * fixtures, and a module-load constant would make cache persistence itself untestable from inside
+ * a process whose environment was already set.
+ */
+function cacheRoot(): string {
+  return process.env.CHASE_CACHE_DIR ?? path.join(os.homedir(), ".cache", "chase");
+}
 
 /**
  * Traces are namespaced by network. The same digest requested on two networks must never
@@ -14,7 +21,7 @@ const CACHE_DIR = process.env.CHASE_CACHE_DIR ?? path.join(os.homedir(), ".cache
  * network it was not fetched from.
  */
 function networkDir(network: CacheNetwork): string {
-  return path.join(CACHE_DIR, network);
+  return path.join(cacheRoot(), network);
 }
 
 function cachePath(network: CacheNetwork, digest: string): string {
@@ -64,7 +71,10 @@ export function saveTrace(trace: SuiTransactionTrace): void {
         ...b,
         amount: b.amount.toString(),
       })),
-      raw: undefined,
+      // Stamped so a report can name the normalisation a cached trace came from. Field absence,
+      // not this number, is what the rules treat as "unrecorded" — a marker nothing in the wild
+      // carries yet cannot be the authority.
+      schema: TRACE_SCHEMA,
     };
     fs.writeFileSync(cachePath(network, trace.digest), JSON.stringify(serializable), {
       mode: 0o600,
@@ -73,6 +83,9 @@ export function saveTrace(trace: SuiTransactionTrace): void {
     // cache write failure is non-fatal
   }
 }
+
+/** 2: object changes carry their recorded output owner. */
+export const TRACE_SCHEMA = 2;
 
 export interface CacheClearing {
   traces: number;
@@ -105,17 +118,18 @@ export function clearCache(): CacheClearing {
   // `network` field, so loadTrace never resolves it) or a checkpoint listing. Both used to
   // survive `--clear`, which then reported a wiped cache while they stayed on disk.
   // signatures.json is excluded: the signature cache owns that path and clears itself.
-  if (fs.existsSync(CACHE_DIR)) {
-    for (const entry of fs.readdirSync(CACHE_DIR, { withFileTypes: true })) {
+  const root = cacheRoot();
+  if (fs.existsSync(root)) {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       if (entry.name === "signatures.json") continue;
       try {
-        fs.unlinkSync(path.join(CACHE_DIR, entry.name));
+        fs.unlinkSync(path.join(root, entry.name));
         counts.unreachableTraces++;
       } catch {}
     }
 
-    const checkpointDir = path.join(CACHE_DIR, "checkpoints");
+    const checkpointDir = path.join(root, "checkpoints");
     counts.checkpoints = unlinkJson(checkpointDir);
     try {
       fs.rmSync(checkpointDir, { recursive: true, force: true });
@@ -126,5 +140,5 @@ export function clearCache(): CacheClearing {
 }
 
 export function cacheDir(): string {
-  return CACHE_DIR;
+  return cacheRoot();
 }

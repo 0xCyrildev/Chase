@@ -1,5 +1,5 @@
 import { InvariantChecker, ObjectChange, SuiTransactionTrace, Violation } from "../lib/types.js";
-import { outputOwnerKind } from "../lib/owner.js";
+import { outputOwnerOf, UNRECORDED_NOTE } from "../lib/owner.js";
 
 const CAP_PATTERNS = [
   "::TreasuryCap",
@@ -38,10 +38,11 @@ function coverageOf(trace: SuiTransactionTrace) {
     capabilityMovesWithUnresolvableOwner: capabilities.filter(
       (c) => c.changeType === "mutated" && !c.recipient && c.sender !== trace.sender
     ).length,
+    unrecordedOwnerKinds: capabilities.filter((c) => outputOwnerOf(c).kind === "unrecorded").length,
     note:
       'capabilities are recognised by objectType only; object changes whose type the RPC reported as ' +
       `"unknown" (${unresolvedObjectTypes}/${trace.objectChanges.length} here) cannot be classified, ` +
-      "and a new owner that is not an AddressOwner is reported as recipient: null",
+      "and a new owner that is not an address owner is reported as recipient: null",
   };
 }
 
@@ -65,12 +66,12 @@ export const capabilityTransfer: InvariantChecker = {
       if (change.changeType === "deleted") continue;
       if (change.changeType !== "mutated") continue;
 
-      const ownerKind = outputOwnerKind(trace, change);
+      const owner = outputOwnerOf(change);
       const baseEvidence = {
         objectId: change.objectId,
         objectType: change.objectType,
         changeType: change.changeType,
-        recipientKind: ownerKind,
+        recipientKind: owner.kind,
         sender: trace.sender,
         classification: coverage,
       };
@@ -91,23 +92,29 @@ export const capabilityTransfer: InvariantChecker = {
         continue;
       }
 
-      // The capability is no longer owned by an address (wrapped, parented, shared or frozen).
-      // Still the sender losing it, as long as the sender demonstrably held it at input; the new
-      // owner cannot be named from this trace, so it is reported as a kind instead of an address.
+      // The capability is no longer owned by an address: wrapped in another object, shared, or
+      // frozen. Still the sender losing it, as long as the sender demonstrably held it at input.
+      // When an object owns it the chain names that object, so the finding names it too.
       if (change.sender && change.sender === trace.sender) {
+        const ownerNames = owner.objectId
+          ? `${owner.kind} ${owner.objectId.slice(0, 12)}…`
+          : owner.kind;
+
         violations.push({
           type: "CAPABILITY_TRANSFER",
           severity: "high",
           message:
             `${shortCapName(change.objectType)} left the sender's address ownership into a ` +
-            `non-address owner (${ownerKind})`,
+            `non-address owner (${ownerNames})`,
           evidence: {
             ...baseEvidence,
             recipient: null,
+            ...(owner.objectId ? { recipientObject: owner.objectId } : {}),
             previousOwner: change.sender,
             note:
-              "recipient is null because the new owner is not an AddressOwner; the normalized trace " +
-              "does not name the owning object",
+              owner.kind === "unrecorded"
+                ? UNRECORDED_NOTE
+                : "recipient is null because the new owner is not an address owner",
           },
         });
       }
