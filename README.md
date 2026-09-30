@@ -1,6 +1,8 @@
 # Chase
 
 **Static analysis reasons about what a contract says. Chase reasons about what a transaction did.**
+
+
 It is the post-deployment layer of a Sui Move security workflow, the phase a source audit cannot
 observe, because by the time Chase runs the chain has already answered.
 
@@ -12,7 +14,9 @@ You give it a transaction digest, or a package to watch, and it reads the execut
 fullnode and tells you what happened: which calls ran, in what order, what moved, what changed hands,
 and which of eleven invariant checks thought that pattern was worth a human looking at.
 
-It is one tool in four shapes: a CLI you can type, a library a script can import, an MCP server an
+It is one tool in four shapes: 
+a CLI you can type, a library a script can import, 
+an MCP server an
 orchestrator can route into, and a packaged agent skill under [`skill/chase/`](#as-an-agent-skill),
 which is the same three layers written for an agent to follow. Detection stays deterministic. A model
 is only ever asked to read and explain what the checks already fired on, never to decide what fired.
