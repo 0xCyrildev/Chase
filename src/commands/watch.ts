@@ -1,5 +1,24 @@
 import { TraceFetcher, NonProgrammableTransaction } from "../lib/fetcher.js";
 import { runAnalysis, resolveNetwork, Network } from "./analyze.js";
+import { cursorPath, loadCursor, saveCursor, resolveWatchStart, CursorNetwork } from "../lib/cursor.js";
+
+/**
+ * Injectable so the loop can be driven offline against committed fixtures. `chase watch` had no
+ * automated coverage at all before this: its fixture path needs checkpoint listings, not just
+ * traces, and a live listing cannot be committed. What the fake proves is the loop's bookkeeping —
+ * which checkpoint the cursor advanced past, and what a failed listing did to the gap ledger.
+ */
+export interface WatchDeps {
+  fetcher?: {
+    getCheckpointHeight(): Promise<{ current: bigint; lowest: bigint }>;
+    getCheckpointTransactions(seq: bigint): Promise<string[]>;
+    close?(): Promise<void>;
+  };
+  sleep?: (ms: number) => Promise<void>;
+  exit?: (code: number) => void;
+}
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 interface WatchOptions {
   from?: string;
@@ -8,9 +27,11 @@ interface WatchOptions {
   network?: Network;
 }
 
-export async function watchCommand(opts: WatchOptions) {
+export async function watchCommand(opts: WatchOptions, deps: WatchDeps = {}) {
   const network = resolveNetwork(opts.network);
-  const fetcher = new TraceFetcher(network, true);
+  const fetcher = deps.fetcher ?? new TraceFetcher(network, true);
+  const sleep = deps.sleep ?? wait;
+  const exit = deps.exit ?? ((code: number) => process.exit(code) as never);
 
   let limit: number;
   if (opts.limit === undefined) {
@@ -23,26 +44,47 @@ export async function watchCommand(opts: WatchOptions) {
     }
   }
 
-  let cursor: bigint;
   const { current, lowest } = await fetcher.getCheckpointHeight();
 
+  let flag: bigint | undefined;
   if (opts.from !== undefined) {
     if (!/^\d+$/.test(opts.from.trim())) {
       console.error(`[chase] --from must be a checkpoint number, got: ${opts.from}`);
-      process.exit(2);
+      exit(2);
+      return;
     }
-    cursor = BigInt(opts.from.trim());
-    if (lowest > 0n && cursor < lowest) {
+    flag = BigInt(opts.from.trim());
+    if (lowest > 0n && flag < lowest) {
       console.error(
-        `[chase] --from ${cursor} is below this endpoint's retention floor (${lowest}); ` +
+        `[chase] --from ${flag} is below this endpoint's retention floor (${lowest}); ` +
           `those checkpoints would silently yield nothing. Start at ${lowest} or use the archive endpoint.`
       );
-      process.exit(2);
+      exit(2);
+      return;
     }
-  } else {
-    cursor = current - 2n;
   }
 
+  const start = resolveWatchStart({
+    flag,
+    saved: loadCursor(network as CursorNetwork),
+    current,
+    lowest,
+    path: cursorPath(),
+  });
+  let cursor = start.cursor;
+  const gaps = [...start.gaps];
+
+  console.error(`[chase] ${start.why}`);
+  if (gaps.length) {
+    console.error(
+      `[chase] ${gaps.length} checkpoint(s) from earlier runs were unreadable and are recorded as gaps, not covered`
+    );
+  }
+  if (start.exitCode !== undefined) {
+    console.error(`[chase] ${start.remedy}`);
+    exit(start.exitCode);
+    return;
+  }
   console.error(`[chase] watching ${network} from checkpoint ${cursor} (tip=${current}, lowest=${lowest})`);
 
   let processed = 0;
@@ -50,6 +92,32 @@ export async function watchCommand(opts: WatchOptions) {
   const empty: string[] = [];
   let totalChecked = 0;
   let totalFlagged = 0;
+
+  const net = network as CursorNetwork;
+  const cursorState = () => {
+    if (!cursorPath()) return "not saved (cursor disabled by CHASE_WATCH_CURSOR_FILE='')";
+    const at = loadCursor(net);
+    return at ? `saved at ${at.checkpoint}${at.gaps.length ? `, ${at.gaps.length} gap(s)` : ""}` : "not saved";
+  };
+
+  // The stored position is the NEXT checkpoint to attempt, which is the same statement as "every
+  // checkpoint before this one had its transactions attempted" plus the gaps recorded beside it.
+  const persist = () => saveCursor(net, cursor, gaps);
+
+  const summary = (how: string) =>
+    console.error(
+      `[chase] ${how}: ${processed} checkpoint(s), ${totalFlagged}/${totalChecked} transactions flagged` +
+        (unreadable.length ? `, ${unreadable.length} checkpoint(s) UNREADABLE [${unreadable.join(", ")}]` : "") +
+        (empty.length ? `, ${empty.length} empty` : "") +
+        ` — cursor ${cursorState()}`
+    );
+
+  process.on("SIGINT", () => {
+    // Nothing extra to write: the position is already the last completed boundary. But Ctrl-C used
+    // to produce no closing line at all, which is how a monitor lies about its own uptime.
+    summary("interrupted");
+    process.exit(130);
+  });
 
   while (processed < limit) {
     let digests: string[] = [];
@@ -61,8 +129,12 @@ export async function watchCommand(opts: WatchOptions) {
         `[chase] checkpoint ${cursor} fetch failed: ${code}${err?.message || err?.name || "unknown error"}`
       );
       unreadable.push(cursor.toString());
+      gaps.push(cursor.toString());
       cursor++;
       processed++;
+      // Advancing without recording it would turn an unreadable checkpoint into coverage the run
+      // never had. The gap travels with the cursor.
+      persist();
       continue;
     }
 
@@ -70,7 +142,7 @@ export async function watchCommand(opts: WatchOptions) {
       empty.push(cursor.toString());
       console.error(`[chase] checkpoint ${cursor}: 0 txs (empty or not yet indexed)`);
       if (cursor >= current) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await sleep(2000);
       }
     } else {
       console.error(`[chase] checkpoint ${cursor}: ${digests.length} txs`);
@@ -88,7 +160,7 @@ export async function watchCommand(opts: WatchOptions) {
       const report = await tryAnalyze(digest, opts.filter, network);
       if (report === undefined) continue;
       if (report === null) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await sleep(2000);
         const retried = await tryAnalyze(digest, opts.filter, network, true);
         if (retried && retried.violations.length > 0) {
           flagged++;
@@ -120,17 +192,14 @@ export async function watchCommand(opts: WatchOptions) {
     totalFlagged += flagged;
     cursor++;
     processed++;
+    persist();
   }
 
-  console.error(
-    `[chase] watched ${processed} checkpoint(s): ${totalFlagged}/${totalChecked} transactions flagged` +
-      (unreadable.length ? `, ${unreadable.length} checkpoint(s) UNREADABLE [${unreadable.join(", ")}]` : "") +
-      (empty.length ? `, ${empty.length} empty` : "")
-  );
+  summary("watched");
 
   if (unreadable.length > 0) {
     console.error("[chase] coverage was incomplete, so this run did not survey the whole range");
-    process.exit(2);
+    exit(2);
   }
 }
 

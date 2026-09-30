@@ -20,6 +20,9 @@ const FIXTURES = path.join(ROOT, "test-cases", "fixtures");
 
 process.env.CHASE_CACHE_DIR = FIXTURES;
 process.env.CHASE_HISTORY_FILE = "";
+// A state store a test mutates is not a fixture. The cursor block below points this at a temp dir
+// on purpose; everything else in here must never be able to write one.
+process.env.CHASE_WATCH_CURSOR_FILE = "";
 
 const { parseTarget, traceTouchesTarget } = await import("../src/lib/target.js");
 const { Budget } = await import("../src/agent/budget.js");
@@ -575,6 +578,128 @@ for (const f of fs.readdirSync(path.join(ROOT, "src", "invariants"))) {
       "emitted but undeclared — it will score with the default modifier"
     );
   }
+}
+
+console.log("\nwatch cursor (resume, refuse, and never rewind)");
+
+const { resolveWatchStart } = await import("../src/lib/cursor.js");
+
+const entry = (checkpoint: string, gaps: string[] = []) => ({ checkpoint, savedAt: "2026-09-30T00:00:00.000Z", gaps });
+const start = (over: any) => resolveWatchStart({ saved: null, current: 1000n, lowest: 500n, path: "/tmp/x.json", ...over });
+
+check("--from wins and says the stored cursor is not rewound",
+  /STARTING FROM --from.*not rewound/.test(start({ flag: 700n, saved: entry("900") }).why));
+check("a --from run leaves a later stored cursor alone rather than moving it back",
+  start({ flag: 700n, saved: entry("900") }).cursor === 700n);
+check("an in-range cursor resumes",
+  start({ saved: entry("810") }).why.startsWith("RESUMING FROM SAVED CURSOR") && start({ saved: entry("810") }).cursor === 810n);
+check("a cursor below the retention floor exits instead of clamping",
+  start({ saved: entry("10") }).exitCode === 2, "clamping would turn resume into an unasked-for backfill");
+check("a cursor ahead of the endpoint's tip exits too",
+  start({ saved: entry("5000") }).exitCode === 2, "waiting forever is an EMPTY SCAN wearing a spinner");
+check("no cursor falls back to tip-2 and names that as the reason",
+  start({}).cursor === 998n && /TIP-2 \(no usable cursor/.test(start({}).why));
+check("recorded gaps travel with a resumed cursor",
+  start({ saved: entry("810", ["807", "808"]) }).gaps.join(",") === "807,808");
+check("the disabled cursor path is distinguishable from the no-cursor path",
+  /cursor disabled/.test(resolveWatchStart({ saved: null, current: 1000n, lowest: 500n, path: null }).why));
+
+// Layer 2: drive the real loop against committed fixtures through a fake checkpoint listing. This is
+// the coverage watch never had; it exercises the loop's bookkeeping, NOT that a real listing looks
+// like this one.
+const { watchCommand } = await import("../src/commands/watch.js");
+const FIXTURE_DIGESTS = [
+  "5RHbYgCHrtpWEWbc46Cj7DLqybY4moKDQUt6DxpmviR7",
+  "Eo4jC6v9qDADYM6ZwuxeiywftZPdzfPZfvgTSAqDRmT5",
+];
+for (const d of FIXTURE_DIGESTS) {
+  check(`fixture trace present for the offline watch loop: ${d.slice(0, 8)}…`,
+    fs.existsSync(path.join(FIXTURES, "mainnet", `${d}.json`)), "a non-fixture digest would go live");
+}
+
+const cursorFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "chase-cursor-")), "watch-cursor.json");
+process.env.CHASE_WATCH_CURSOR_FILE = cursorFile;
+try {
+  let listed: bigint[] = [];
+  let failAt: bigint | null = 3001n;
+  const fake = {
+    async getCheckpointHeight() {
+      return { current: 3000n, lowest: 1n };
+    },
+    async getCheckpointTransactions(seq: bigint) {
+      listed.push(seq);
+      if (failAt !== null && seq === failAt) throw new Error("simulated listing failure");
+      return seq === 3000n ? FIXTURE_DIGESTS : [];
+    },
+  };
+  const out: string[] = [];
+  const realLog = console.log;
+  const realErr = console.error;
+  console.log = (...a: any[]) => out.push(a.join(" "));
+  console.error = (...a: any[]) => out.push(a.join(" "));
+  try {
+    // tip is 3000 and a fresh run begins at tip-2 = 2998, so four checkpoints covers 2998..3001 —
+    // the fixture-bearing one and the one whose listing throws.
+    await watchCommand({ limit: "4" } as any, {
+      fetcher: fake as any,
+      sleep: async () => {},
+      exit: () => {},
+    });
+  } finally {
+    console.log = realLog;
+    console.error = realErr;
+  }
+
+  const printed = out.join("\n");
+  check("a fresh run starts at tip-2 and says so", /TIP-2 \(no usable cursor/.test(printed));
+  check("the unreadable checkpoint is reported, not absorbed", /UNREADABLE \[3001\]/.test(printed));
+  const rows = out.filter((l) => l.startsWith("{")).map((l) => JSON.parse(l));
+  check("findings come through as NDJSON rows", rows.length >= 1 && rows.every((r) => r.digest && r.violations), `${rows.length} rows`);
+  const saved = JSON.parse(fs.readFileSync(cursorFile, "utf8")).mainnet;
+  check("the cursor advanced past the completed checkpoint only", saved.checkpoint === "3002", saved.checkpoint);
+  check("and the failed listing is stored as a gap, not as coverage", saved.gaps.includes("3001"), JSON.stringify(saved.gaps));
+
+  listed = [];
+  process.env.CHASE_HISTORY_FILE = "";
+  const second = out.length;
+  const fake2 = {
+    async getCheckpointHeight() {
+      return { current: 3100n, lowest: 1n };
+    },
+    async getCheckpointTransactions(seq: bigint) {
+      listed.push(seq);
+      return [];
+    },
+  };
+  const out2: string[] = [];
+  const rl = console.log, re = console.error;
+  console.log = (...a: any[]) => out2.push(a.join(" "));
+  console.error = (...a: any[]) => out2.push(a.join(" "));
+  try {
+    await watchCommand({ limit: "1" } as any, { fetcher: fake2 as any, sleep: async () => {}, exit: () => {} });
+  } finally {
+    console.log = rl;
+    console.error = re;
+  }
+  check("a second run resumes where the first stopped", /RESUMING FROM SAVED CURSOR/.test(out2.join("\n")) && listed[0] === 3002n, String(listed[0]));
+  check("and it repeats which checkpoints were never covered", /recorded as gaps, not covered/.test(out2.join("\n")));
+  void second;
+
+  process.env.CHASE_WATCH_CURSOR_FILE = "";
+  const out3: string[] = [];
+  console.log = (...a: any[]) => out3.push(a.join(" "));
+  console.error = (...a: any[]) => out3.push(a.join(" "));
+  try {
+    await watchCommand({ limit: "1" } as any, { fetcher: { async getCheckpointHeight() { return { current: 3100n, lowest: 1n }; }, async getCheckpointTransactions() { return []; } } as any, sleep: async () => {}, exit: () => {} });
+  } finally {
+    console.error = re;
+    console.log = rl;
+  }
+  check("with the cursor disabled a run says it is starting at tip-2, not resuming",
+    /TIP-2 \(no usable cursor; cursor disabled/.test(out3.join("\n")), out3.join("\n").slice(0, 120));
+} finally {
+  process.env.CHASE_WATCH_CURSOR_FILE = "";
+  fs.rmSync(path.dirname(cursorFile), { recursive: true, force: true });
 }
 
 console.log("\ndry-run coverage (the published artifact surfaced this one)");

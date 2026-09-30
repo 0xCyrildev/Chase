@@ -58,8 +58,8 @@ program
 
 program
   .command("watch")
-  .description("Scan new checkpoints, running invariants on each transaction")
-  .option("--from <seq>", "Starting checkpoint sequence number")
+  .description("Scan new checkpoints, running invariants on each transaction (resumes from the last one it finished)")
+  .option("--from <seq>", "Start at this checkpoint; does not rewind the saved cursor (set CHASE_WATCH_CURSOR_FILE='' to disable saving)")
   .option("--filter <substring>", "Only report findings whose evidence matches this substring")
   .option("--limit <n>", "Stop after processing N checkpoints")
   .option("-n, --network <net>", "Sui network (mainnet, testnet, devnet); defaults to $SUI_NETWORK, then mainnet")

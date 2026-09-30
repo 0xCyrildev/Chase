@@ -160,6 +160,26 @@ npm run watch -- --limit 1
 npm run watch -- --from 321400000 --filter 0xabc123 --limit 5
 ```
 
+A watch run remembers where it got to. The position lives at
+`$XDG_DATA_HOME/chase/watch-cursor.json`, per network, and the first line it prints names which of
+the four cases you are in: `STARTING FROM --from`, `RESUMING FROM SAVED CURSOR`,
+`TIP-2 (no usable cursor)`, or `CURSOR UNUSABLE` followed by an exit. The stored number is the next
+checkpoint to attempt, so a resumed run does not re-scan what was already covered, and checkpoints
+whose listing failed are kept as a `gaps` list rather than quietly absorbed into coverage — the
+closing line repeats them, and `Ctrl-C` now prints that line too before exiting 130.
+
+Three deliberate refusals:
+
+- A `--from` run does **not** rewind the stored cursor, and says so.
+- A stored cursor below the endpoint's retention floor exits instead of clamping forward. Clamping
+  would turn "resume" into an unasked-for backfill over weeks of history, and printing a number is
+  not consent. The message gives both remedies.
+- Set `CHASE_WATCH_CURSOR_FILE=''` to disable reading and writing entirely; the run then says it
+  started at tip-2 because there was no cursor, which is a different statement from resuming.
+
+It is not under `CHASE_CACHE_DIR` on purpose — the fixture suites point that variable at
+`test-cases/fixtures`, and mutable state must not live where the tests read it.
+
 Cache management:
 
 ```bash
@@ -977,6 +997,13 @@ sui client publish --gas-budget 100000000
 
 - **`ownership-anomaly` produces no signal on shared-object flows.** The
   recipient must be an address owner for the check to fire.
+
+- **The offline watch-loop test drives a fake listing.** `chase watch` had no automated coverage at
+  all before the cursor landed, because its fixture path needs checkpoint listings rather than just
+  traces and a live listing cannot be committed. What the test proves is the loop's bookkeeping —
+  which checkpoint the cursor advanced past, what a failed listing did to the gap ledger, and what
+  the run printed. It does **not** prove that a real checkpoint listing behaves like the fake one;
+  `npm run smoke:live` and `chase watch --limit 1` against a live node are what cover that.
 
 - **Traces cached before schema 2 have no recorded owner.** Both ownership
   rules then report `unrecorded` rather than a kind, because a lookup that
