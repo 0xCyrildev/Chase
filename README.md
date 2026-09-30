@@ -1138,7 +1138,7 @@ shape change is a support problem for every old version at once.
 
 ## Changelog
 
-Release-by-release changes, with the measurement that justified each one, are in [CHANGELOG.md](CHANGELOG.md).
+Release-by-release changes, with the measurement that justified each one, are in [CHANGELOG.md](CHANGELOG.md). Every published version also has an annotated tag and a GitHub release, `v0.1.0` through the current release. The 0.1.x tags are backfilled and anchored to the commit that set each version in `package.json`, which makes them version anchors rather than build provenance, since publishing is done by hand from a working tree.
 The longer narrative for this release, including two detector escalations that were caught in pricing and
 reverted before shipping, is in `reports/0.2.0-detector-pricing.md`.
 
